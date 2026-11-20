@@ -63,7 +63,11 @@ Every candidate moment is scored from several signals, then the best ones are ke
 - **Facecam position presets** (top-left, top-right, bottom-left, bottom-right, bottom-centre, none) for the usual streamer layouts, remembered between sessions. Or draw the face and gameplay boxes yourself in the editor.
 - **11 native layouts:** camera above/below gameplay, blurred fill, full-screen crop, gameplay only, four corner overlays, circle facecam and side-by-side. Independent face/game selection and a face-size slider. Preview-only platform safe zones.
 - Caption styles: GTA Neon, Impact, Clean, Hormozi and MrBeast. Word-timed, editable words, SRT export.
-- **Hinglish captions**: Hindi speech is written in English letters ("kya haal hai bhai") by default. Pick Hinglish / हिंदी / English explicitly if you like. Caption accuracy: Fast, Accurate (Whisper large-v3-turbo, default) or Best Hindi (large-v3, much slower on small GPUs).
+- **Opening headings:** eight seconds by default, adjustable from 2–60 seconds, with black backing for bright gameplay and facecam layouts. Use **Improve opening heading** to write a grounded curiosity question from the selected transcript. Existing clips can apply the new look without downloading or finding moments again.
+- **Moment mix:** Balanced combines activity and transcript-led proposals; Action favours energy; Dialogue favours story, humour and insights. Final selection reduces overlapping and repetitive moments. Balanced/Dialogue prefer an already-installed Gemma 4 local judge; other local models remain a fallback. This changes curation rules and prompts, not foundation-model weights.
+- **Custom captions:** installed font family, size, text/active/outline colours, words per caption and local saved profiles. Import SRT/ASS/WebVTT or paste subtitle text, adjust word timings, split/merge and shift captions. Within-cue word timings from imported files are estimated. Download WebVTT alongside SRT.
+- **Transcript explorer:** explicitly generate or import a full-source transcript, search phrases across cues, browse pages, and click the first/last word to export that passage. Cached transcripts are reused by Make clips and invalidated when the source changes.
+- **Hinglish captions**: Hindi speech is written in English letters ("kya haal hai bhai") by default. Pick Hinglish / हिंदी / English explicitly if you like. Fast uses available source captions; Best Hindi explicitly uses local large-v3 recognition and can be slower on small GPUs. Missing source captions require local recognition.
 - **Make clips uses your own setup**: facecam preset or the boxes you draw in step 03.
 - Optical-flow motion + audio highlight ranking, frame-accurate NVENC export (falls back to x264).
 - Nothing leaves your computer. The server binds to `127.0.0.1` only.
@@ -149,6 +153,40 @@ python tests/e2e_site.py          # website, links, release assets
 python tests/make_report.py       # rebuild tests/REPORT.md
 ```
 
+## Live clipping controls and the phone remote
+
+Inspired by a mobile live-clipper shown in a creator's reel (that app is unreleased, so nothing of it could be studied; only what the video shows was used).
+
+- **Chat hype meter** while a stream is live: 0-100%, from the comments of the last ~30 s against the stream's own usual speed (peak = 4x usual; the first seconds use an absolute scale), with the label *quiet / building momentum / hot / peak viral hype*.
+- **Clip length presets** 10 s / 20 s / 30 s / Auto: the clip starts a few seconds before the chat peak; "Clip now" cuts the same length from the live recording.
+- **Hook text** for live clips from the AI, the **stream title** (emoji removed) or your own text; **captions switch** (off = faster clips).
+- Live clips now also get the style options (template, logo, credit, outro, music, caption animation).
+- **Phone remote:** start NeonClipping with the *NeonClipping (phone access)* shortcut (`Start-NeonClipping-Phone.bat`, or set `NEONCLIPPING_LAN=1`). Under Live clipping it shows a Wi-Fi address and a 6-digit PIN. On a phone on the same Wi-Fi open that address (`/m`), enter the PIN, paste a YouTube Live or Twitch link, pick a length, watch the hype meter, press **Clip now**, and play / save / share the clips. On Android Chrome use "Add to Home screen" to get an app icon. The PC does all the work; the phone is only a remote.
+- **Safety:** phone access is off unless you start it that way (the server then listens on 127.0.0.1 only). Everything that is not the PC needs the PIN (after 5 wrong tries an address is locked for 10 minutes; "New PIN" logs every phone out). Even with the PIN a phone can only use the live, library, make, clips, feedback and creators routes: uploads, file tools, the queue and the PIN itself stay PC-only. Windows will ask once whether to allow NeonClipping on private networks: choose Allow for home Wi-Fi only.
+- Not included: a native Android app (the phone page is a web page that works like one), live clipping that runs on the phone itself.
+
+## Captions: YouTube's own, always
+
+For YouTube links every clip uses YouTube's own word-timed captions, in every language. Hindi comes as Devanagari and is turned into Hinglish (nukta letters included: kapde, padega, thoda); repeated-word loops are trimmed. It is faster than a local speech model and, on game audio, clearly more accurate: on a 2-hour Hindi stream a Make run took 197 s with correct lines like "poori mod di yaar, kya bhai? arre pulis". The local "Accurate (turbo)" model was removed because its captions were worse. The only local model left on purpose is **Best Hindi (large-v3, slow)**. Videos without YouTube captions (local files, Twitch VODs) still need a local model as the only option; expect rougher captions there, or import an .srt.
+
+## Style & extras
+
+- **Templates:** wrap the clip in an *X post* (light or dark), a *TikTok hook* box or a *Breaking news* broadcast frame. Type the name, handle and hook; the card, avatar letter, check mark and ticker are drawn for you.
+- **Background card:** padded, rounded-corner video card on a blurred copy, a colour, a gradient or your own image (dimmed, blurred).
+- **Logo / watermark** (4 corners, size, opacity), **credit line** (or "Clip: channel name" automatically), **outro ribbon** that slides in for the last seconds.
+- **Music bed:** one track under the voice that rises to a peak volume in the last seconds (volume, peak and riser length are yours).
+- **Six caption animations:** highlight (word by word), pop-in, pop-in line, one by one, build up, full line.
+- **Import captions:** drop an `.srt` or `.ass` file; the words are timed to the clip and can be edited.
+- All of it works in Make clips, single exports and "Edit saved clips" (including "apply to all clips of this video").
+
+## Find my facecam
+
+The **Find my facecam** chip (or "find it automatically when I press Make clips") looks at 14 frames of the video, finds rectangles whose border stays in the same place, and keeps the one that holds a face (small local YuNet face model, MIT licence, `models/`). It rejects the game's minimap and HUD panels, finds webcams in a corner or floating on a side, and answers "no facecam" when it is not sure. Measured on 30 real saved streams: found the webcam on every stream that has one; clean "not found" on trailers and talking-head videos. Not perfect: some boxes cover only the face inside a framed webcam.
+
+## Long streams with a free chatbot
+
+**AI parts** (below step 01): paste a YouTube link, NeonClipping splits the video's captions into ~25-minute parts and gives a copy-ready prompt per part. Paste each into any free chatbot, paste all answers back (JSON or lines like `12:30-13:10 title`), tick the moments and press Make clips: only those sections are downloaded and rendered. A chatbot given a 9-hour transcript in one go only reads the start; small parts fix that. Nothing is sent anywhere by NeonClipping; the chatbot step is manual.
+
 ## Honest limits
 
 - Highlight picking is a heuristic plus a small local LLM. It finds loud, energetic, quotable moments, not guaranteed "viral" ones. Review before posting.
@@ -165,7 +203,7 @@ NeonClipping is free. If it saves you time you can ⭐ star the repo, follow [@i
 
 ## Credits and inspiration
 
-Design ideas studied from open-source clippers: [PeakCut](https://github.com/haziqahmedqasmi/PeakCut) (audio-first download, captions as transcript, section download), [ClipCutter](https://github.com/curtyo18/ClipCutter), [content-ai](https://github.com/buddah0/content-ai), and the Growlance live-clipper script. Built on FFmpeg, yt-dlp, FastAPI, faster-whisper, OpenCV, Ollama.
+Design ideas studied from open-source clippers: [PeakCut](https://github.com/haziqahmedqasmi/PeakCut) (audio-first download, captions as transcript, section download), [ClipCutter](https://github.com/curtyo18/ClipCutter), [content-ai](https://github.com/buddah0/content-ai), and the Growlance live-clipper script. Also studied: PeakCut's facecam-by-static-border idea and creator list (reimplemented here with our own code, plus a face check), the public feature list of the YIZERGE desktop editor (templates, background card, music riser, caption animations; only its public web page was read), and a creator's walkthrough of splitting a 9-hour stream into small transcript parts for a free chatbot. Built on FFmpeg, yt-dlp, FastAPI, faster-whisper, OpenCV (YuNet face detector, MIT), Ollama.
 
 ## License
 

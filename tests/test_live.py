@@ -45,6 +45,45 @@ class Targets(unittest.TestCase):
             with self.assertRaises(ValueError):
                 L.parse_target(bad)
 
+class Hype(unittest.TestCase):
+    def test_hype_grows_with_chat_speed_and_is_capped(self):
+        usual = 5.0           # messages per 10 s
+        values = [L.hype_percent(m, usual) for m in (0, 15, 30, 60, 120, 600)]
+        self.assertEqual(values, sorted(values))
+        self.assertEqual(values[0], 0)
+        self.assertEqual(values[-1], 100)
+        self.assertTrue(all(0 <= v <= 100 for v in values))
+
+    def test_quiet_chat_stays_low_even_with_no_baseline(self):
+        self.assertLess(L.hype_percent(4, 0.0), 25)
+        self.assertEqual(L.hype_percent(0, 0.0), 0)
+
+    def test_four_times_the_usual_speed_is_peak(self):
+        self.assertEqual(L.hype_percent(4 * 3 * 10, 10.0), 100)
+
+    def test_busy_chat_at_its_normal_speed_is_not_peak(self):
+        # a big streamer with ~80 messages per 10 s: normal speed is 25%, not 100%
+        self.assertLessEqual(L.hype_percent(240, 80.0), 30)
+
+    def test_first_seconds_use_the_absolute_scale(self):
+        self.assertEqual(L.hype_percent(75, 0.0, history_buckets=1), 50)
+        self.assertEqual(L.hype_percent(300, 0.0, history_buckets=2), 100)
+        self.assertEqual(L.hype_percent(3, 0.0, history_buckets=0), 2)
+
+    def test_labels(self):
+        self.assertEqual([L.hype_label(x) for x in (0, 30, 60, 90)], ['quiet', 'building momentum', 'hot', 'peak viral hype'])
+
+class Title(unittest.TestCase):
+    def test_emoji_are_removed_and_text_kept(self):
+        self.assertEqual(L.clean_title(chr(0x1F334) + 'PLAYING GTA 6 FOR THE FIRST TIME' + chr(0x1F334)), 'PLAYING GTA 6 FOR THE FIRST TIME')
+
+    def test_hindi_and_punctuation_survive(self):
+        self.assertEqual(L.clean_title('  Bhai  kya scene hai!! नमस्ते  '), 'Bhai kya scene hai!! नमस्ते')
+
+    def test_length_cap_and_empty(self):
+        self.assertEqual(len(L.clean_title('a' * 500)), 120)
+        self.assertEqual(L.clean_title(None), '')
+
 
 if __name__ == '__main__':
     unittest.main()

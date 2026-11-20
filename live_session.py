@@ -48,6 +48,31 @@ def is_spike(count, history):
     return count >= MIN_MSGS and count > mu + SIGMA * sd and count >= RATIO * max(mu, 1.0)
 
 
+def clean_title(title):
+    """Stream title as a hook: emoji and symbol pictures are dropped (the caption font cannot draw them), spaces tidied."""
+    keep = []
+    for ch in str(title or ''):
+        o = ord(ch)
+        if o >= 0x1F000 or 0x2600 <= o <= 0x27BF or 0x2B00 <= o <= 0x2BFF or o in (0xFE0F, 0x200D, 0x20E3) or 0xE000 <= o <= 0xF8FF:
+            continue
+        keep.append(ch if ch.isprintable() else ' ')
+    return ' '.join(''.join(keep).split())[:120]
+
+
+def hype_percent(msgs30, baseline_bucket, history_buckets=30):
+    """0-100 chat 'hype' from the messages of the last ~30 s.
+    With enough history it is relative to the usual rate (baseline_bucket = mean messages per 10 s): 100 at four times the usual speed.
+    In the first half minute there is no usual yet, so an absolute scale is used (150 messages in 30 s = 100)."""
+    if history_buckets < 3:
+        return int(max(0, min(100, round(100.0 * msgs30 / 150.0))))
+    usual30 = max(baseline_bucket * 3.0, 6.0)
+    return int(max(0, min(100, round(100.0 * msgs30 / (4.0 * usual30)))))
+
+
+def hype_label(h):
+    return 'quiet' if h < 25 else 'building momentum' if h < 50 else 'hot' if h < 80 else 'peak viral hype'
+
+
 class LiveSession:
     def __init__(self, target, data, render, before=24, after=14):
         self.kind, self.ref, self.url = target
@@ -65,7 +90,7 @@ class LiveSession:
         self.proc = None
         self.lock = threading.Lock()
         self.state = {'id': self.id, 'status': 'starting', 'stage': 'Starting the recorder', 'platform': self.kind, 'target': self.ref,
-                      'clips': [], 'chat_now': 0, 'baseline': 0.0, 'spikes': 0, 'elapsed': 0, 'chat': 'connecting', 'pending': 0, 'error': None}
+                      'clips': [], 'chat_now': 0, 'hist_n': 0, 'msgs30': 0, 'hype': 0, 'hype_label': 'quiet', 'title': '', 'baseline': 0.0, 'spikes': 0, 'elapsed': 0, 'chat': 'connecting', 'pending': 0, 'error': None}
 
     # ---- helpers
     def _set(self, **kw):
@@ -135,6 +160,21 @@ class LiveSession:
             raise RuntimeError('Recording has not started yet.')
         threading.Thread(target=self._cut, args=(self.now() - seconds, seconds, 'You pressed Clip now', None), daemon=True).start()
 
+    def _fetch_title(self):
+        """Stream title (Twitch via Streamlink metadata, YouTube via yt-dlp) for the optional 'hook from the stream title'."""
+        try:
+            if self.kind == 'twitch':
+                r = subprocess.run([sys.executable, '-m', 'streamlink', '--json', self.url], capture_output=True, timeout=40)
+                import json as _json
+                title = (_json.loads(r.stdout.decode('utf-8', 'replace') or '{}').get('metadata') or {}).get('title') or ''   # utf-8, not the Windows code page
+            else:
+                import yt_dlp
+                with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True, 'socket_timeout': 20}) as y:
+                    title = y.extract_info(self.url, download=False).get('title') or ''
+            self._set(title=clean_title(title))
+        except Exception:
+            pass
+
     def stop(self):
         self.stop_ev.set()
         if self.proc and self.proc.poll() is None:
@@ -148,7 +188,7 @@ class LiveSession:
     def _run(self):
         try:
             log = open(self.dir / 'streamlink.log', 'wb')
-            self.proc = subprocess.Popen([sys.executable, '-m', 'streamlink', '--loglevel', 'warning', '--twitch-disable-ads', '--stdout', self.url, 'best'],
+            self.proc = subprocess.Popen([sys.executable, '-m', 'streamlink', '--loglevel', 'warning', '--stdout', self.url, 'best'],
                                          stdout=open(self.rec, 'wb'), stderr=log)
             deadline = time.time() + 90
             while self.t0 is None:
@@ -161,6 +201,7 @@ class LiveSession:
                     raise RuntimeError('Timed out waiting for the stream. Is it live?')
                 time.sleep(0.5)
             threading.Thread(target=self._twitch_chat if self.kind == 'twitch' else self._youtube_chat, daemon=True).start()
+            threading.Thread(target=self._fetch_title, daemon=True).start()
             self._set(status='recording', stage='Recording and watching chat')
             last_clip, seen = -1e9, None
             while not self.stop_ev.is_set() and self.proc.poll() is None:
@@ -174,11 +215,16 @@ class LiveSession:
                     self._set(status='error', error='Stopped: less than %d GB free on the disk.' % MIN_FREE_GB, stage='Disk almost full')
                     self.proc.terminate()
                     break
-                self._set(elapsed=int(self.now()), chat_now=self.counts.get(done_bucket + 1, 0))
+                cur = int(time.time() // BUCKET)
+                m30 = sum(self.counts.get(b, 0) for b in (cur - 2, cur - 1, cur))
+                hype = hype_percent(m30, self.state['baseline'], self.state['hist_n'])
+                self._set(elapsed=int(self.now()), chat_now=self.counts.get(done_bucket + 1, 0), msgs30=m30, hype=hype, hype_label=hype_label(hype))
                 if done_bucket == seen:
                     continue
                 seen = done_bucket
-                hist = [self.counts.get(b, 0) for b in range(done_bucket - HISTORY, done_bucket)]
+                first = int(self.t0 // BUCKET)            # buckets before the session started are not 'usual chat', they are just empty
+                hist = [self.counts.get(b, 0) for b in range(max(first, done_bucket - HISTORY), done_bucket)]
+                self._set(hist_n=len(hist))
                 c = self.counts.get(done_bucket, 0)
                 self._set(baseline=round(statistics.mean(hist), 1) if hist else 0.0)
                 if len([h for h in hist if h]) < 6:

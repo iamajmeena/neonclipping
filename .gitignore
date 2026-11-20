@@ -36,3 +36,12 @@ __pycache__/
 !tests/REPORT.md
 !tests/report.json
 !tests/fixes.json
+
+!models/
+!models/*.onnx
+
+!extras.js
+!transcripts.js
+!vision.js
+
+!mobile.html

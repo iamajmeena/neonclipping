@@ -39,6 +39,7 @@ def run():
             break
         time.sleep(3)
     R.check(g, 'recording starts and elapsed time counts up', lambda: (s['status'] == 'recording' and s['elapsed'] >= 20, {k: s.get(k) for k in ('status', 'elapsed', 'stage')}))
+    R.check(g, 'state carries hype, comments in 30 s, label, stream title (clean)', lambda: (all(k in s for k in ('hype', 'msgs30', 'hype_label', 'title')) and 0 <= s['hype'] <= 100 and 'ð' not in s['title'], {k: s.get(k) for k in ('hype', 'msgs30', 'hype_label', 'title')}))
     R.check(g, 'chat reader connected (read-only)', lambda: ('connected' in str(s.get('chat')), s.get('chat')))
     t1 = time.time()
     while time.time() - t1 < 60 and not (s.get('chat_now') or s.get('baseline')):

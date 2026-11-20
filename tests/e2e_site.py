@@ -21,7 +21,25 @@ def get(url, method='GET', timeout=40):
     except urllib.error.HTTPError as e:
         return e.code, b'', e.headers
     except Exception as e:
+        if 'CERTIFICATE_VERIFY_FAILED' in str(e):          # this machine's Python trust store sometimes cannot verify github.com; curl can
+            return _curl(url, method)
         return 0, str(e).encode(), {}
+
+
+def _curl(url, method):
+    import subprocess
+    nl = chr(10)
+    cmd = ['curl', '-sL', '-m', '40', '-A', UA['User-Agent'], '-w', nl + '%{http_code}']
+    if method == 'HEAD':
+        cmd += ['-I']
+    r = subprocess.run(cmd + [url], capture_output=True)
+    out = r.stdout
+    pos = out.rfind(nl.encode())
+    try:
+        code = int(out[pos + 1:].strip() or 0)
+    except ValueError:
+        code = 0
+    return code, (out[:pos] if method == 'GET' else b''), {}
 
 
 def links(html, base):

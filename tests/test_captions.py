@@ -45,4 +45,54 @@ class Cleanup(unittest.TestCase):
         ws=[{'start':i,'end':i+.4,'text':t} for i,t in enumerate('ha. ha, ha ha! ha'.split())]
         self.assertEqual(len(captions.collapse_repeats(ws)),3)
 
-if __name__=='__main__':unittest.main()
+class Anims(unittest.TestCase):
+    def render(self, anim, style='gta'):
+        import tempfile
+        from pathlib import Path
+        W = words('this is a caption test oh my god')
+        with tempfile.TemporaryDirectory() as d:
+            captions.write(W, style, Path(d), 'x', '', 1450, 300, 1080, 1920, anim)
+            text = (Path(d) / 'x.ass').read_text(encoding='utf-8')
+        return [l for l in text.split(chr(10)) if l.startswith('Dialogue: 1')], text
+
+    def test_no_control_characters_in_any_animation(self):
+        for anim in captions.ANIMS:
+            for style in ('gta', 'bold', 'clean', 'hormozi', 'mrbeast'):
+                ev, text = self.render(anim, style)
+                self.assertTrue(ev, (anim, style))
+                self.assertFalse([c for c in text if ord(c) < 32 and c not in chr(10) + chr(9)], (anim, style))
+
+    def test_one_by_one_shows_a_single_word(self):
+        ev, _ = self.render('one_by_one')
+        self.assertEqual(len(ev), 8)
+        for l in ev:
+            body = l.split(',,')[-1]
+            plain = ''.join(part.split('}')[-1] for part in body.split('{') if part)
+            self.assertEqual(len(plain.split()), 1, l)
+
+    def test_build_up_grows_to_the_full_line(self):
+        ev, _ = self.render('build_up')
+        def plain(l):
+            body = l.split(',,')[-1]
+            return ''.join(part.split('}')[-1] for part in body.split('{') if part).split()
+        counts = [len(plain(l)) for l in ev]
+        self.assertEqual(counts[:4], [1, 2, 3, 4])
+        self.assertEqual(counts[4:], [1, 2, 3, 4])
+
+    def test_full_line_is_one_event_per_group(self):
+        ev, _ = self.render('full_line')
+        self.assertEqual(len(ev), 2)
+
+    def test_highlight_is_the_old_behaviour(self):
+        ev, _ = self.render('highlight')
+        self.assertEqual(len(ev), 8)
+
+class Nukta(unittest.TestCase):
+    def test_youtube_precomposed_nukta_letters(self):
+        import translit
+        got = [translit.to_hinglish(w) for w in ('कपड़े', 'पड़ेगा', 'थोड़ा', 'थोड़ा')]
+        self.assertEqual(got, ['kapde', 'padega', 'thoda', 'thoda'])
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -194,11 +194,17 @@ try {
         "`"$venvPy`" app.py"
     )
     Set-Content -Path $startBat -Value $bat -Encoding ASCII
+    # same start script with the phone remote switched on (listens on the home network, PIN required; see README)
+    $phoneBat = Join-Path $InstallDir 'Start-NeonClipping-Phone.bat'
+    Set-Content -Path $phoneBat -Value (@($bat[0], $bat[1], 'set NEONCLIPPING_LAN=1') + $bat[2..($bat.Count - 1)]) -Encoding ASCII
     if (-not $NoShortcut) { try {
         $desk = [Environment]::GetFolderPath('Desktop')
         $sh = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desk 'NeonClipping.lnk'))
         $sh.TargetPath = $startBat; $sh.WorkingDirectory = $InstallDir; $sh.Description = 'NeonClipping - captioned 9:16 clips'; $sh.Save()
+        $sh2 = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desk 'NeonClipping (phone access).lnk'))
+        $sh2.TargetPath = $phoneBat; $sh2.WorkingDirectory = $InstallDir; $sh2.Description = 'NeonClipping with phone remote (same Wi-Fi, PIN)'; $sh2.Save()
         Ok "Desktop pe 'NeonClipping' shortcut ban gaya."
+        Ok "Desktop pe 'NeonClipping (phone access)' shortcut bhi ban gaya: phone se live clipping control karne ke liye."
     } catch { Warn "Desktop shortcut nahi ban paya. Start file: $startBat" } }
 
     Stop-Transcript | Out-Null

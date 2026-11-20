@@ -20,7 +20,10 @@ from fastapi import HTTPException
 CHECK_EVERY = 60            # seconds between live checks
 MANUAL_STOP_COOLDOWN = 1800  # after you press Stop, do not restart this creator for 30 minutes
 ERROR_COOLDOWN = 300         # after a failed start, wait 5 minutes
-OPT_KEYS = ('layout', 'cam', 'game', 'top', 'caption_style', 'language')
+from styling import KEYS as STYLE_KEYS
+from brands import KEYS as BRAND_KEYS
+from hooks import KEYS as HOOK_KEYS
+OPT_KEYS = ('aspect','resolution','fps','layout', 'cam', 'game', 'top', 'caption_style', 'language')+STYLE_KEYS+BRAND_KEYS+HOOK_KEYS
 
 
 def parse_creator(text):

@@ -7,7 +7,13 @@ import uuid
 from pathlib import Path
 from fastapi import HTTPException
 
-CHANGE_KEYS = {'layout','top','cam','game','caption_style','caption_y','captions','hook','title','post_caption'}
+CHANGE_KEYS = {'aspect','resolution','fps','layout','top','cam','game','caption_style','caption_y','captions','hook','title','post_caption'}
+from styling import KEYS as STYLE_KEYS
+from brands import KEYS as BRAND_KEYS,appearance
+from hooks import KEYS as HOOK_KEYS,settings as hook_settings
+CHANGE_KEYS = CHANGE_KEYS | set(STYLE_KEYS)
+CHANGE_KEYS = CHANGE_KEYS | set(BRAND_KEYS)
+CHANGE_KEYS = CHANGE_KEYS | set(HOOK_KEYS)
 
 def latest_file(data, file):
     """If a clip was re-edited, its newer version is the one to work on (stale cards still point at the old file)."""
@@ -101,6 +107,7 @@ def attach(app,data,state,probe,export,save):
         if anchor not in files:files.append(anchor)
         return files
 
+    app.reedit_video_files=video_files
     app.reedit_metadata=metadata
     app.reedit_groups=group_map
 
@@ -143,9 +150,12 @@ def attach(app,data,state,probe,export,save):
                 raise HTTPException(409,'A saved source is missing; no clips were changed.')
             settings['id']=source
             # Validate all inputs synchronously before scheduling any work.
-            from layouts import geometry
+            from layouts import geometry, output_settings
             try:
-                geometry(settings.get('layout','stack'),settings.get('top',.32))
+                width,height,_=output_settings(settings)
+                appearance(settings)
+                hook_settings(settings)
+                geometry(settings.get('layout','stack'),settings.get('top',.32),width,height)
                 if settings.get('caption_style','gta') not in ('gta','bold','clean','hormozi','mrbeast'):raise ValueError()
                 if not 400<=int(settings.get('caption_y',1450))<=1750:raise ValueError()
                 for key in ('cam','game'):

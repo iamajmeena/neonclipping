@@ -6,11 +6,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 rows = json.loads((HERE / 'report.json').read_text(encoding='utf-8'))
 fixes = json.loads((HERE / 'fixes.json').read_text(encoding='utf-8')) if (HERE / 'fixes.json').exists() else []
-order = ['static', 'export', 'edit', 'make', 'live', 'creators', 'feedback', 'ui', 'installer', 'unit', 'site']
+order = ['static', 'export', 'edit', 'make', 'style', 'features', 'live', 'phone', 'creators', 'feedback', 'ui', 'installer', 'unit', 'site']
 titles = {'static': 'Page, API and input validation', 'export': 'Rendering: 11 layouts x 5 caption styles x positions',
           'edit': 'Editing saved clips (one / all clips of a video)', 'make': 'Make clips: sources, modes, languages, errors',
-          'live': 'Live clipping on a real stream', 'creators': 'Creator list', 'feedback': 'Star ratings and learning',
-          'ui': 'Browser UI', 'installer': 'One-click installer', 'unit': 'Unit tests', 'site': 'Website, links, release, editorsgurukul'}
+          'live': 'Live clipping on a real stream', 'phone': 'Phone remote over the real Wi-Fi address: PIN gate, PC-only routes, live clipping from the phone', 'creators': 'Creator list', 'feedback': 'Star ratings and learning',
+          'style': 'Style extras: templates, background card, watermark, credit, outro, music', 'features': 'Caption animations, SRT/ASS import, facecam finder, AI parts, Make with moments', 'ui': 'Browser UI', 'installer': 'One-click installer', 'unit': 'Unit tests', 'site': 'Website, links, release, editorsgurukul'}
 out = [f'# NeonClipping test report\n', f'Generated {time.strftime("%Y-%m-%d %H:%M")} by tests/make_report.py from tests/report.json.\n']
 total = len(rows)
 ok = sum(1 for r in rows if r['ok'])

@@ -137,7 +137,7 @@ def sources():
 
     case('Make 13-min English (audio-first path), default Fast', 30, 60, 3, url=YT_MID)
     case('Make 2-hour Hindi video, Fast, Hinglish captions', 30, 60, 3, 'hinglish', url=YT_HINDI)
-    case('Make 2-hour Hindi video, Accurate (turbo), Hinglish captions', 30, 60, 2, 'hinglish', url=YT_HINDI, accurate='accurate')
+    case('Make 2-hour Hindi video with the old "accurate" value: still YouTube captions, no local model', 30, 60, 2, 'hinglish', url=YT_HINDI, accurate='accurate')
 
     def trailer():
         s, why = make(url=YT_TRAILER, count=2, minlen=15, maxlen=40)
