@@ -106,7 +106,7 @@ def export(b:dict):
    w=max(2,min(m['w']-x,int(values[2]*m['w'])));h=max(2,min(m['h']-y,int(values[3]*m['h'])))
    rects.append((x,y,w,h))
  except (KeyError,ValueError,TypeError,OverflowError):raise HTTPException(400,'Check crop regions, face height and caption position.')
- graph=render_graph(layout,rects,top)
+ graph=render_graph(layout,rects,top,enhance=b.get('facecam_enhance','smart'),filters=b.get('filters'))
  job=uuid.uuid4().hex;out=DATA/(job+'.mp4');state[job]={'status':'running','message':'Preparing export'}
  def work():
   try:
@@ -248,7 +248,7 @@ def make(b:dict):
     from yt_dlp.utils import download_range_func
     def section(i,c):
      name=uuid.uuid4().hex
-     with _yt({'format':'bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b','merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
+     with _yt({'format':'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/bv*[height<=720]+ba/b[height<=720]','merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
                'download_ranges':download_range_func(None,[(max(0,c['start']-PAD),c['end']+1)])}) as y:y.download([url])
      return name
     pool=ThreadPoolExecutor(max_workers=3);sections=[pool.submit(section,i,c) for i,c in enumerate(found)]
@@ -267,7 +267,7 @@ def make(b:dict):
     else:sid2=sid;start=c['start'];end=c['end'];words=c.get('words')
     lang=language or ('hinglish' if (video_lang.startswith('hi') or c.get('language')=='hi') else None)
     body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.5 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
-          'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam,'game':game,'features':c.get('features'),'weights_used':W}
+          'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam,'game':game,'features':c.get('features'),'weights_used':W,'facecam_enhance':b.get('facecam_enhance','smart'),'filters':b.get('filters')}
     if acc!='fast' or lang in ('hinglish','hi') or not c.get('words'):
      save(job,{'stage':f'Accurate captions {i+1}/{len(found)}'})
      body['words']=transcribe(DATA/(sid2+'.mp4'),start,end,DATA,lambda m:None,lang,(large_v3() if acc=='best' else None))['words']

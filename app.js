@@ -47,7 +47,7 @@ function collectWords(){if(words&&wordRange===signature())return words;return nu
 function renderWords(){const editor=$('words');editor.replaceChildren();for(const word of words||[]){const input=document.createElement('input');input.value=word.text;input.title=word.start.toFixed(2)+'–'+word.end.toFixed(2)+'s';input.oninput=()=>word.text=input.value;editor.append(input);}}
 async function generateSubtitles(){await requireSource();status('Starting local subtitles…');const range=signature();const {job}=await request('/transcribe',{id,start:Number($('start').value),end:Number($('end').value),language:$('language').value});for(;;){const s=await request('/status/'+job);status(s.message||s.status);if(s.status==='error')throw Error(s.error);if(s.status==='done'){if(signature()!==range)throw Error('Selected range changed. Generate subtitles for the current range.');words=s.words;wordRange=range;renderWords();const text=words.map(w=>w.text).join(' ');if(!$('clip-title').value)$('clip-title').value=text.split(/\s+/).slice(0,9).join(' ');if(!$('post-caption').value)$('post-caption').value=text.slice(0,220)+(text.length>220?'…':'')+'\n\n#Gaming #Clips';status(words.length?'Subtitles ready. Edit any word before exporting.':'No speech detected in this range.');return;}await sleep(1100);}}
 $('transcribe').onclick=async()=>{$('transcribe').disabled=true;try{await generateSubtitles();}catch(e){status(e.message);}finally{$('transcribe').disabled=false;}};
-function exportSettings(source,start,end){const b={id:source,...rect,layout,top:Number($('top').value)/100,start,end,captions:$('captions').checked,caption_style:style,caption_y:Number($('caption-y').value),language:$('language').value,hook:$('hook').value,title:$('clip-title').value,post_caption:$('post-caption').value};if(source===id&&start===Number($('start').value)&&end===Number($('end').value)){const edited=collectWords();if(edited!==null)b.words=edited;}return b;}
+function exportSettings(source,start,end){const b={id:source,...rect,layout,top:Number($('top').value)/100,start,end,captions:$('captions').checked,caption_style:style,caption_y:Number($('caption-y').value),language:$('language').value,hook:$('hook').value,title:$('clip-title').value,post_caption:$('post-caption').value,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters()};if(source===id&&start===Number($('start').value)&&end===Number($('end').value)){const edited=collectWords();if(edited!==null)b.words=edited;}return b;}
 async function runExport(body,prefix=''){const {job}=await request('/export',body);for(;;){const s=await request('/status/'+job);status(prefix+(s.message||'Rendering…'));if(s.status==='error')throw Error(s.error);if(s.status==='done')return s;await sleep(1000);}}
 function showDownload(s){$('download').href='/media/'+s.file;$('download').hidden=false;$('srt').hidden=!s.srt;if(s.srt)$('srt').href=s.srt;}
 $('export').onclick=async()=>{const button=$('export');button.disabled=true;$('download').hidden=true;$('srt').hidden=true;try{await requireSource();const s=await runExport(exportSettings(id,Number($('start').value),Number($('end').value)));showDownload(s);status('Ready · 1080 × 1920 · '+s.encoder+' · '+s.caption_words+' caption words');await refreshLibrary();}catch(e){status(e.message);}finally{button.disabled=false;}};
@@ -61,7 +61,7 @@ request('/highlights').then(showHighlights).catch(e=>status(e.message));refreshL
 
 $('make').onclick=async()=>{const url=$('url').value.trim();if(!url&&!id){status('Paste a video link or upload a file first.');return;}
  const b=$('make');b.disabled=true;$('make-results').hidden=false;$('make-grid').replaceChildren();$('make-progress').style.width='2%';
- try{const {job}=await request('/make',{...(url?{url}:{id}),count:Number($('count').value),mode:$('mode').value,accurate:$('accurate').value,min_len:Number($('minlen').value),max_len:Number($('length').value),layout:makeLayout(),cam:rect.cam,game:rect.game,top:Number($('top').value)/100,caption_style:style,language:$('language').value==='auto'?'':$('language').value});
+ try{const {job}=await request('/make',{...(url?{url}:{id}),count:Number($('count').value),mode:$('mode').value,accurate:$('accurate').value,min_len:Number($('minlen').value),max_len:Number($('length').value),layout:makeLayout(),cam:rect.cam,game:rect.game,top:Number($('top').value)/100,caption_style:style,language:$('language').value==='auto'?'':$('language').value,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters()});
   const shown=new Set();
   for(;;){const s=await request('/make/'+job);$('make-status').textContent=(s.stage||s.status)+' · '+Math.round((s.progress||0)*100)+'%';$('make-progress').style.width=Math.max(2,(s.progress||0)*100)+'%';
    (s.clips||[]).forEach(c=>{if(shown.has(c.file))return;shown.add(c.file);const d=document.createElement('div');d.className='mk';d.dataset.file=c.file;
@@ -100,7 +100,7 @@ async function loadNativeLayouts(){
 function drawNativeLayout(source){
  const spec=layoutSpecs[layout];if(!spec)return;
  if(spec.mode==='blur'){pc.save();pc.filter='blur(16px)';cover(source,{x:0,y:0,w:1,h:1},-15,-15,570,990);pc.restore();const ratio=Math.min(540/sourceW,960/sourceH),w=sourceW*ratio,h=sourceH*ratio;pc.drawImage(source,0,0,sourceW,sourceH,(540-w)/2,(960-h)/2,w,h);}
- else{pc.fillStyle='#000';pc.fillRect(0,0,540,960);for(const layer of spec.layers){pc.save();if(layer.circle){pc.beginPath();pc.arc((layer.x+layer.w/2)/2,(layer.y+layer.h/2)/2,Math.min(layer.w,layer.h)/4,0,Math.PI*2);pc.clip();}cover(source,layer.source==='full'?{x:0,y:0,w:1,h:1}:rect[layer.source],layer.x/2,layer.y/2,layer.w/2,layer.h/2);pc.restore();}}
+ else{pc.fillStyle='#000';pc.fillRect(0,0,540,960);for(const layer of spec.layers){pc.save();if(layer.source==='cam'&&$('facecam-enhance')?.value!=='off'){const c=Number($('filter-contrast')?.value||100),b=Number($('filter-brightness')?.value||0),s=Number($('filter-saturation')?.value||100),h=Number($('filter-hue')?.value||0);pc.filter=`contrast(${c}%) brightness(${100+b}%) saturate(${s}%) hue-rotate(${h}deg)`}if(layer.circle){pc.beginPath();pc.arc((layer.x+layer.w/2)/2,(layer.y+layer.h/2)/2,Math.min(layer.w,layer.h)/4,0,Math.PI*2);pc.clip();}cover(source,layer.source==='full'?{x:0,y:0,w:1,h:1}:rect[layer.source],layer.x/2,layer.y/2,layer.w/2,layer.h/2);pc.restore();}}
  if($('safe-zones')?.checked){pc.save();pc.fillStyle='#ff4ba52b';pc.fillRect(0,0,540,48);pc.fillRect(0,840,540,120);pc.fillRect(470,250,70,590);pc.fillStyle='#fff';pc.font='14px sans-serif';pc.fillText('Platform controls — preview only',12,927);pc.restore();}
 }
 $('top').addEventListener('input',()=>loadNativeLayouts().catch(e=>status(e.message)));
@@ -225,3 +225,46 @@ async function loadCreators(force){
 $('creator-add').onclick=async()=>{const url=$('creator-url').value.trim();if(!url){$('creator-note').textContent='Type a Twitch name or paste a channel link first.';return;}
  try{await request('/creators',{url,...creatorOpts()});$('creator-url').value='';$('creator-note').textContent='Added. Checking if they are live…';await loadCreators(true);}catch(e){$('creator-note').textContent='⚠ '+e.message;}};
 loadCreators(true).catch(()=>{});setInterval(()=>{if(!document.hidden)loadCreators().catch(()=>{});},8000);
+
+function getFacecamFilters(){
+ return {
+  contrast:Number($('filter-contrast')?.value||100)/100,
+  brightness:Number($('filter-brightness')?.value||0)/100,
+  saturation:Number($('filter-saturation')?.value||100)/100,
+  clarity:Number($('filter-clarity')?.value||0)/100,
+  hue:Number($('filter-hue')?.value||0)
+ };
+}
+function updateFilterLabels(){
+ if($('val-contrast'))$('val-contrast').textContent=$('filter-contrast').value+'%';
+ if($('val-brightness'))$('val-brightness').textContent=($('filter-brightness').value>0?'+':'')+$('filter-brightness').value+'%';
+ if($('val-saturation'))$('val-saturation').textContent=$('filter-saturation').value+'%';
+ if($('val-clarity'))$('val-clarity').textContent=$('filter-clarity').value+'%';
+ if($('val-hue'))$('val-hue').textContent=$('filter-hue').value+'°';
+}
+function setFilterPreset(preset){
+ const p={'smart':{c:112,b:1,s:110,clr:50,h:0},'high':{c:116,b:1,s:114,clr:80,h:0},'off':{c:100,b:0,s:100,clr:0,h:0}}[preset];
+ if(p){
+  if($('filter-contrast'))$('filter-contrast').value=p.c;
+  if($('filter-brightness'))$('filter-brightness').value=p.b;
+  if($('filter-saturation'))$('filter-saturation').value=p.s;
+  if($('filter-clarity'))$('filter-clarity').value=p.clr;
+  if($('filter-hue'))$('filter-hue').value=p.h;
+  updateFilterLabels();
+ }
+}
+setFilterPreset('smart');
+['contrast','brightness','saturation','clarity','hue'].forEach(k=>{
+ $('filter-'+k)?.addEventListener('input',()=>{
+  updateFilterLabels();
+  if($('facecam-enhance'))$('facecam-enhance').value='custom';
+ });
+});
+$('facecam-enhance')?.addEventListener('change',()=>{
+ if($('facecam-enhance').value!=='custom')setFilterPreset($('facecam-enhance').value);
+});
+$('filters-reset')?.addEventListener('click',()=>{
+ setFilterPreset('off');
+ if($('facecam-enhance'))$('facecam-enhance').value='off';
+});
+

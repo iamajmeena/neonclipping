@@ -55,7 +55,7 @@ def geometry(name, top=.32):
         'y':1920-size-180 if bottom else 72, 'w':w, 'h':size,
         'circle':name == 'circle'}]}
 
-def render_graph(name, rects, top=.32):
+def render_graph(name, rects, top=.32, enhance='smart', filters=None):
     spec = geometry(name, top)
     if spec['mode'] == 'blur':
         return '[0:v]split=2[b][f];[b]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=8:2,scale=1080:1920[bg];[f]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[base]'
@@ -71,7 +71,37 @@ def render_graph(name, rects, top=.32):
         mask = ''
         if layer.get('circle'):
             mask = ",format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(pow(X-W/2,2)+pow(Y-H/2,2),pow(min(W,H)/2,2)),255,0)'"
-        parts.append(source+crop+f'scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1'+mask+f'[p{i}]')
+        extra = ''
+        scale_flags = ':flags=lanczos'
+        if layer['source'] == 'cam' and enhance != 'off':
+            c = 1.0; b_val = 0.0; s = 1.0; clarity = 0.0; hue_val = 0.0
+            has_custom = False
+            if isinstance(filters, dict) and filters:
+                c = float(filters.get('contrast', 1.0))
+                b_val = float(filters.get('brightness', 0.0))
+                s = float(filters.get('saturation', 1.0))
+                clarity = float(filters.get('clarity', 0.0))
+                hue_val = float(filters.get('hue', 0.0))
+                if c != 1.0 or b_val != 0.0 or s != 1.0 or clarity > 0.0 or hue_val != 0.0:
+                    has_custom = True
+            if not has_custom:
+                if enhance == 'high':
+                    c = 1.16; s = 1.14; b_val = 0.01; clarity = 0.7
+                else:
+                    c = 1.12; s = 1.10; b_val = 0.01; clarity = 0.5
+            extra_filters = []
+            if c != 1.0 or b_val != 0.0 or s != 1.0:
+                extra_filters.append(f'eq=contrast={c:.2f}:brightness={b_val:.2f}:saturation={s:.2f}')
+            if hue_val != 0.0:
+                extra_filters.append(f'hue=h={hue_val:.1f}')
+            if clarity > 0.0:
+                cas_val = max(0.05, min(1.0, clarity))
+                extra_filters.append(f'cas={cas_val:.2f}')
+                if clarity > 0.7:
+                    extra_filters.append('unsharp=5:5:0.6:5:5:0.2')
+            if extra_filters:
+                extra = ',' + ','.join(extra_filters)
+        parts.append(source+crop+f'scale={w}:{h}{scale_flags}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1'+extra+mask+f'[p{i}]')
     first = layers[0]
     parts.append(f"[p0]pad=1080:1920:{first['x']}:{first['y']}:black[b0]")
     for i, layer in enumerate(layers[1:],1):

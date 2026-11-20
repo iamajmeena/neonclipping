@@ -50,10 +50,10 @@ def attach(app,DATA,state,probe):
         def progress(event):
             if event.get('status')=='downloading':
                 got=event.get('downloaded_bytes',0);total=event.get('total_bytes') or event.get('total_bytes_estimate') or 0
-                msg=f'Downloading 720p: {got/1048576:.1f} MB'+(f' / {total/1048576:.1f} MB' if total else '')
+                msg=f'Downloading source: {got/1048576:.1f} MB'+(f' / {total/1048576:.1f} MB' if total else '')
                 state[job].update(message=msg,stage=msg,progress=min(.3,got/total*.3) if total else .1)
             elif event.get('status')=='finished':state[job].update(message='Merging source video',stage='Merging source video')
-        options={'noplaylist':True,'format':'best[height<=720][ext=mp4]/bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]',
+        options={'noplaylist':True,'format':'best[height<=1080][ext=mp4]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]/best[height<=720]',
                  'outtmpl':str(directory/'source.%(ext)s'),'merge_output_format':'mp4','socket_timeout':15,'retries':2,'fragment_retries':2,
                  'extractor_retries':1,'progress_hooks':[progress],'quiet':True,'no_warnings':True}
         with yt_dlp.YoutubeDL(options) as downloader:downloader.download([url])
