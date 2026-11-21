@@ -114,7 +114,7 @@ def _json_blobs(text):
     return blobs
 
 
-LINE = re.compile(r'(?P<a>\d{1,2}:\d{2}(?::\d{2})?)\s*(?:-|–|—|to|->)\s*(?P<b>\d{1,2}:\d{2}(?::\d{2})?)\s*[-:–—|]?\s*(?P<rest>.*)')
+LINE = re.compile(r'(?P<a>\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(?:-->|->|-|–|—|to)\s*(?P<b>\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*[-:–—|]?\s*(?P<rest>.*)')
 KV_LINE = re.compile(r'(?:start|from|begin)[:\s]+(?P<a>\d{1,2}:\d{2}(?::\d{2})?|\d+s?)\b.*?(?:end|to|stop)[:\s]+(?P<b>\d{1,2}:\d{2}(?::\d{2})?|\d+s?)\b(?P<rest>.*)', re.IGNORECASE)
 
 
@@ -245,5 +245,8 @@ def attach(app):
             if rejected:
                 reasons = ', '.join(dict.fromkeys(r.get('why', 'skipped') for r in rejected))
                 raise HTTPException(400, f'Found {len(rejected)} moments but they were skipped: {reasons}.')
+            single_ts_count = len(re.findall(r'^\s*\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+[a-zA-Z]', text, re.MULTILINE))
+            if single_ts_count >= 3 or len(text.splitlines()) > 20:
+                raise HTTPException(400, "Aapne poori video ka raw transcript paste kiya hai! Step 2 mein chatbot ke chune hue viral moments (jaise 12:30-13:10 Title) paste karein. Agar bina chatbot ke automatic clips chahiye, toh upar Step 01 mein '⚡ Make clips' dabayein.")
             raise HTTPException(400, 'No moments found in that text. Paste the chatbot answers (JSON or lines like 12:30-13:10 title).')
         return {'moments': [{**m, 'start_label': hms(m['start']), 'end_label': hms(m['end'])} for m in moments], 'rejected': rejected}
