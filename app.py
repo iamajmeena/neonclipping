@@ -182,7 +182,7 @@ def export(b:dict):
    vmap='[v]';fade_af=None
    if hooks.fade_on(b) and dur>1.2:
     fc+=f';[v]fade=t=in:st=0:d=0.25,fade=t=out:st={max(0,dur-0.3):.2f}:d=0.3[vfade]';vmap='[vfade]'
-    if not af:fade_af=f'afade=t=in:st=0:d=0.25,afade=t=out:st={max(0,dur-0.3):.2f}:d=0.3'
+    fade_af=f'afade=t=in:st=0:d=0.25,afade=t=out:st={max(0,dur-0.3):.2f}:d=0.3'
    if bg_has_audio and bg_vol > 0.0:
     base_a = amap or '0:a?'
     fc += f";[{bg_idx}:a]volume={bg_vol:.2f}[bg_a];[{base_a}][bg_a]amix=inputs=2:duration=first:dropout_transition=2[a_mix]"
@@ -191,6 +191,10 @@ def export(b:dict):
    sfx_idx=bg_idx+(1 if bg_inputs else 0)
    sfx_inputs,sfx_fc,amap=sfx.mix_audio(ROOT,sfx_id,dur,b.get('sfx_time','hook'),b.get('sfx_volume',0.75),input_idx=sfx_idx,base_audio=amap or '0:a?')
    if sfx_fc:fc+=';'+sfx_fc
+   if fade_af and amap:
+    fc+=f';{amap}afade=t=in:st=0:d=0.25,afade=t=out:st={max(0,dur-0.3):.2f}:d=0.3[afaded]'
+    amap='[afaded]'
+    fade_af=None
    state[job].update(message='Rendering vertical clip with '+style+' captions' if words else 'Rendering vertical clip')
    base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),*bg_inputs,*sfx_inputs,'-filter_complex',fc,'-map',vmap,'-map',amap or '0:a?',*(['-af',fade_af] if fade_af else []),'-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
    if fps:base+=['-r',str(fps),'-fps_mode','cfr']
