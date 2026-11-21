@@ -19,6 +19,9 @@ from captions import transcribe, large_v3, write as write_captions, ANIMS, ascii
 import styling
 import brands
 import hooks
+import sfx
+import brainrot
+import effects
 import curation
 import facecam_detect
 ROOT=Path(__file__).resolve().parent
@@ -111,7 +114,7 @@ def export(b:dict):
  if (b.get('caption_anim') or 'highlight') not in ANIMS:raise HTTPException(400,'Choose a valid caption animation.')
  try:
   top=float(b.get('top',.32));position=int(b.get('caption_y',1450))
-  if not math.isfinite(top) or not .2<=top<=.5 or not 400<=position<=1750:raise ValueError()
+  if not math.isfinite(top) or not .2<=top<=.7 or not 400<=position<=1750:raise ValueError()
   rects=[]
   for key in ['cam','game']:
    r=b[key];values=[float(r[k]) for k in ('x','y','w','h')]
@@ -127,14 +130,32 @@ def export(b:dict):
   except (ValueError,KeyError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
  import camfx
  try:cam_fx=camfx.filter(b)
- except (ValueError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
- graph=render_graph(layout,rects,top,width,height,cam_fx)
+ except Exception:cam_fx=''
  try:brands.appearance(b)
  except (ValueError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
  try:hooks.settings(b)
  except (ValueError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
  try:plan=styling.plan(b,DATA)
  except ValueError as e:raise HTTPException(400,str(e))
+ bg_inputs=[]
+ bg_idx=1
+ bg_has_audio=False
+ bg_pos=b.get('brainrot_pos','bottom')
+ bg_crop=b.get('brainrot_crop','center')
+ bg_speed=float(b.get('brainrot_speed',1.0) or 1.0)
+ bg_vol=float(b.get('brainrot_volume',0.0) or 0.0)
+ if layout=='brainrot':
+  bg_id=b.get('brainrot_bg','subway')
+  bg_p=brainrot.resolve_bg(ROOT,bg_id)
+  if bg_p and bg_p.exists():
+   bg_inputs=['-stream_loop','-1','-i',str(bg_p)]
+   bg_idx=1+(len([a for a in plan.inputs if a=='-i']) if plan and plan.inputs else 0)
+   if bg_vol > 0.0:
+    prb=subprocess.run(['ffprobe','-v','error','-show_entries','stream=codec_type','-of','csv=p=0',str(bg_p)],capture_output=True,text=True)
+    if 'audio' in prb.stdout:
+     bg_has_audio=True
+ top_source=b.get('brainrot_source','game')
+ graph=render_graph(layout,rects,top,width,height,enhance=b.get('facecam_enhance','smart'),filters=b.get('filters'),bg_idx=bg_idx,top_source=top_source,bg_pos=bg_pos,bg_crop=bg_crop,bg_speed=bg_speed,cam_fx=cam_fx)
  job=uuid.uuid4().hex;out=DATA/(job+'.mp4');state[job]={'status':'running','message':'Preparing export'}
  def work():
   try:
@@ -153,15 +174,29 @@ def export(b:dict):
    if words:
     (DATA/(job+'.vtt')).write_text(subtitles.write_track(subtitles.parse_track((DATA/srt).read_text(encoding='utf-8'),allow_overlap=True),'vtt',allow_overlap=True),encoding='utf-8')
    if plan:styling.append_ass(DATA/ass,plan,dur)
-   fc=g2+f';[base]ass={ass}[v]'
+   eff_fc=effects.build_filtergraph(b.get('effects'),dur,width,height)
+   if eff_fc:fc=g2+f';[base]{eff_fc}[eff_base];[eff_base]ass={ass}[v]'
+   else:fc=g2+f';[base]ass={ass}[v]'
    af,amap=plan.audio(dur) if plan else (None,None)
    if af:fc+=';'+af
    vmap='[v]';fade_af=None
    if hooks.fade_on(b) and dur>1.2:
     fc+=f';[v]fade=t=in:st=0:d=0.25,fade=t=out:st={max(0,dur-0.3):.2f}:d=0.3[vfade]';vmap='[vfade]'
-    if not af:fade_af=f'afade=t=in:st=0:d=0.25,afade=t=out:st={max(0,dur-0.3):.2f}:d=0.3'
+    fade_af=f'afade=t=in:st=0:d=0.25,afade=t=out:st={max(0,dur-0.3):.2f}:d=0.3'
+   if bg_has_audio and bg_vol > 0.0:
+    base_a = amap or '0:a?'
+    fc += f";[{bg_idx}:a]volume={bg_vol:.2f}[bg_a];[{base_a}][bg_a]amix=inputs=2:duration=first:dropout_transition=2[a_mix]"
+    amap = '[a_mix]'
+   sfx_id=b.get('sfx')
+   sfx_idx=bg_idx+(1 if bg_inputs else 0)
+   sfx_inputs,sfx_fc,amap=sfx.mix_audio(ROOT,sfx_id,dur,b.get('sfx_time','hook'),b.get('sfx_volume',0.75),input_idx=sfx_idx,base_audio=amap or '0:a?')
+   if sfx_fc:fc+=';'+sfx_fc
+   if fade_af and amap:
+    fc+=f';{amap}afade=t=in:st=0:d=0.25,afade=t=out:st={max(0,dur-0.3):.2f}:d=0.3[afaded]'
+    amap='[afaded]'
+    fade_af=None
    state[job].update(message='Rendering vertical clip with '+style+' captions' if words else 'Rendering vertical clip')
-   base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),'-filter_complex',fc,'-map',vmap,'-map',amap or '0:a?',*(['-af',fade_af] if fade_af else []),'-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
+   base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),*bg_inputs,*sfx_inputs,'-filter_complex',fc,'-map',vmap,'-map',amap or '0:a?',*(['-af',fade_af] if fade_af else []),'-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
    if fps:base+=['-r',str(fps),'-fps_mode','cfr']
    for encoder in encoders.h264(cq=20,x264_preset='fast',nv_preset='p5'):
     # NVIDIA: also decode the source on the GPU (4K VP9/AV1 on the CPU is what pinned it at 100%); retry on the CPU if that fails.
@@ -389,8 +424,8 @@ def make(b:dict):
       if fc.get('found'):cam_use,game_use=fc['cam'],fc['game']
      except Exception as e:save(job,{'facecam':{'found':False,'reason':'detection failed: '+str(e)[:80]}})
     lang=language or ('hinglish' if (video_lang.startswith('hi') or c.get('language')=='hi') else None)
-    body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.5 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
-          'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review')}
+    body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.7 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
+          'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review'),'facecam_enhance':b.get('facecam_enhance','smart'),'filters':b.get('filters'),'sfx':b.get('sfx','none'),'sfx_time':b.get('sfx_time','hook'),'sfx_volume':b.get('sfx_volume',0.75),'brainrot_bg':b.get('brainrot_bg','subway'),'brainrot_source':b.get('brainrot_source','game'),'brainrot_pos':b.get('brainrot_pos','bottom'),'brainrot_crop':b.get('brainrot_crop','center'),'brainrot_speed':b.get('brainrot_speed',1.0),'brainrot_volume':b.get('brainrot_volume',0.0),'effects':b.get('effects')}
     for k in styling.KEYS+brands.KEYS+hooks.KEYS:
      if b.get(k) not in (None,''):body[k]=b[k]
     if b.get('credit_auto') and uploader and not body.get('credit'):body['credit']='Clip: '+uploader[:40]
@@ -622,6 +657,8 @@ aiparts.attach(app)
 facecam_detect.attach(app,DATA)
 brands.attach(app,DATA)
 hooks.attach(app)
+sfx.attach(app, ROOT)
+brainrot.attach(app, ROOT)
 import transcripts
 transcripts.attach(app,DATA,state,probe,transcribe)
 import vision
