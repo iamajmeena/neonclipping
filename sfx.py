@@ -49,11 +49,11 @@ def resolve_file(base_dir, sfx_id):
             return p
     return None
 
-def mix_audio(base_dir, sfx_id, duration, sfx_time='hook', volume=0.75, input_idx=1, base_audio='0:a'):
+def mix_audio(base_dir, sfx_id, duration, sfx_time='hook', volume=0.75, input_idx=1, base_audio='0:a?'):
     """Returns (extra_inputs_list, extra_filter_str, final_audio_map) or ([], None, base_audio)."""
     p = resolve_file(base_dir, sfx_id)
     if not p:
-        return [], None, base_audio
+        return [], None, base_audio or '0:a?'
     
     # Calculate timing in seconds
     t = 0.8

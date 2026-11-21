@@ -69,6 +69,7 @@ html body .choice.active{background:#322037!important;border-color:#ff4ba5!impor
 .native-layout-mini i{position:absolute;display:block;margin:0;border-radius:0;min-height:0}
 html body .native-layout-mini .layout-game{background:#58e8f7!important}
 html body .native-layout-mini .layout-cam{background:#ff4ba5!important;outline:1px solid #201126}
+html body .native-layout-mini .layout-brainrot_bg{background:repeating-linear-gradient(45deg,#d4fb58,#d4fb58 3px,#151022 3px,#151022 7px)!important;outline:1px solid #30263e}
 html body .native-layout-mini .layout-full{background:linear-gradient(145deg,#58e8f7,#316c88)!important}
 html body .native-layout-mini .layout-circle{border-radius:50%}
 html body .native-layout-mini .layout-backdrop{inset:0;width:100%;height:100%;background:#46405c!important}

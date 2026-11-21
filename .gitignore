@@ -62,3 +62,8 @@ __pycache__/
 !sfx/*.wav
 sfx/custom/*
 
+!brainrot/
+!brainrot/*.mp4
+brainrot/custom/*
+
+

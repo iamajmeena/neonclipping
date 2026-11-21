@@ -36,7 +36,7 @@ $('analyze').onclick=async()=>{const button=$('analyze');button.disabled=true;tr
 function point(e){const b=c.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(e.clientX-b.left)/b.width)),y:Math.max(0,Math.min(1,(e.clientY-b.top)/b.height))};}
 c.onpointerdown=e=>{if(!still&&v.readyState<2)return;drag=point(e);c.setPointerCapture(e.pointerId);};c.onpointermove=e=>{if(!drag)return;rectEdited=true;const p=point(e);rect[mode]={x:Math.min(p.x,drag.x),y:Math.min(p.y,drag.y),w:Math.max(.01,Math.abs(p.x-drag.x)),h:Math.max(.01,Math.abs(p.y-drag.y))};};c.onpointerup=()=>drag=null;c.onpointercancel=()=>drag=null;
 $('save').onclick=()=>{localStorage.setItem('ajay-crop',JSON.stringify({rect,top:$('top').value,layout}));status('Layout saved in this browser.');};$('load').onclick=()=>{try{const j=JSON.parse(localStorage.getItem('ajay-crop')||'null');if(j){rect=j.rect;rectEdited=true;$('top').value=j.top;setLayout(j.layout||'stack');status('Saved layout loaded.');}else status('No saved layout yet.');}catch(e){status('Saved layout could not be read.');}};
-function setLayout(value){layout=value;if($('edit-top'))$('edit-top').value=$('top').value;document.querySelectorAll('[data-layout]').forEach(b=>b.classList.toggle('active',b.dataset.layout===layout));$('height-control').hidden=['blur','fill','game'].includes(layout);}
+function setLayout(value){layout=value;if($('edit-top'))$('edit-top').value=$('top').value;document.querySelectorAll('[data-layout]').forEach(b=>b.classList.toggle('active',b.dataset.layout===layout));$('height-control').hidden=['blur','fill','game'].includes(layout);if($('brainrot-panel'))$('brainrot-panel').hidden=layout!=='brainrot';}
 document.querySelectorAll('[data-layout]').forEach(b=>b.onclick=()=>{layoutClicked=true;setLayout(b.dataset.layout);});document.querySelectorAll('[data-style]').forEach(b=>b.onclick=()=>{style=b.dataset.style;document.querySelectorAll('[data-style]').forEach(x=>x.classList.toggle('active',x===b));});
 v.onplay=()=>still=null;v.ontimeupdate=()=>{const end=Number($('end').value);if(end>Number($('start').value)&&v.currentTime>end&&end<v.duration)v.pause();};
 ['start','end','language'].forEach(key=>$(key).addEventListener('change',()=>{clearWords();if(key==='start'&&id)v.currentTime=Math.max(0,Math.min(v.duration||Infinity,Number($('start').value)));}));
@@ -48,7 +48,7 @@ function collectWords(){if(words&&wordRange===signature()){const duration=Number
 function renderWords(){const editor=$('words');editor.replaceChildren();const timing=$('timing-editor')?.checked;editor.classList.toggle('timing',timing);for(const word of words||[]){const input=document.createElement('input');input.value=word.text;input.title=word.start.toFixed(2)+'–'+word.end.toFixed(2)+'s';input.oninput=()=>word.text=input.value;if(!timing){editor.append(input);continue;}const row=document.createElement('div');row.className='word-timing';row.append(input);for(const key of ['start','end']){const field=document.createElement('input');field.type='number';field.step='.01';field.min='0';field.value=Math.round(word[key]*1000)/1000;field.setAttribute('aria-label',key+' '+word.text);field.onchange=()=>{word[key]=Number(field.value);field.setAttribute('aria-invalid',String(!Number.isFinite(word[key])||word.start<0||word.end<=word.start));};row.append(field);}const merge=document.createElement('button');merge.textContent='Merge next';const index=words.indexOf(word);merge.disabled=index===words.length-1;merge.onclick=()=>{const next=words[index+1];words.splice(index,2,{start:Math.min(word.start,next.start),end:Math.max(word.end,next.end),text:word.text+' '+next.text});renderWords();};const split=document.createElement('button');split.textContent='Split words';split.onclick=()=>{const tokens=word.text.trim().split(/\s+/);if(tokens.length<2){status('Type two or more words in this row to split it.');return;}const total=tokens.reduce((n,t)=>n+t.length+1,0);let time=word.start;const parts=tokens.map(t=>{const start=time;time+=(word.end-word.start)*(t.length+1)/total;return{start,end:time,text:t};});words.splice(index,1,...parts);renderWords();status('Words split with estimated within-cue timings; review them before applying.');};row.append(merge,split);editor.append(row);}}
 async function generateSubtitles(){await requireSource();status('Starting local subtitles…');const range=signature();const {job}=await request('/transcribe',{id,start:Number($('start').value),end:Number($('end').value),language:$('language').value});for(;;){const s=await request('/status/'+job);status(s.message||s.status);if(s.status==='error')throw Error(s.error);if(s.status==='done'){if(signature()!==range)throw Error('Selected range changed. Generate subtitles for the current range.');words=s.words;wordRange=range;renderWords();const text=words.map(w=>w.text).join(' ');if(!$('clip-title').value)$('clip-title').value=text.split(/\s+/).slice(0,9).join(' ');if(!$('post-caption').value)$('post-caption').value=text.slice(0,220)+(text.length>220?'…':'')+'\n\n#Gaming #Clips';status(words.length?'Subtitles ready. Edit any word before exporting.':'No speech detected in this range.');return;}await sleep(1100);}}
 $('transcribe').onclick=async()=>{$('transcribe').disabled=true;try{await generateSubtitles();}catch(e){status(e.message);}finally{$('transcribe').disabled=false;}};
-function exportSettings(source,start,end){const b={id:source,...rect,layout,aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),top:Number($('top').value)/100,start,end,captions:$('captions').checked,caption_style:style,caption_y:Number($('caption-y').value),language:$('language').value,hook:$('hook').value,title:$('clip-title').value,post_caption:$('post-caption').value,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters(),sfx:$('sfx-select')?.value||'none',sfx_time:$('sfx-time')?.value||'hook',sfx_volume:(Number($('sfx-volume')?.value||75)/100)};if(source===id&&start===Number($('start').value)&&end===Number($('end').value)){const edited=collectWords();if(edited!==null)b.words=edited;}return b;}
+function exportSettings(source,start,end){const b={id:source,...rect,layout,aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),top:Number($('top').value)/100,start,end,captions:$('captions').checked,caption_style:style,caption_y:Number($('caption-y').value),language:$('language').value,hook:$('hook').value,title:$('clip-title').value,post_caption:$('post-caption').value,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters(),sfx:$('sfx-select')?.value||'none',sfx_time:$('sfx-time')?.value||'hook',sfx_volume:(Number($('sfx-volume')?.value||75)/100),brainrot_bg:$('brainrot-bg-select')?.value||'subway',brainrot_source:$('brainrot-source-select')?.value||'game'};if(source===id&&start===Number($('start').value)&&end===Number($('end').value)){const edited=collectWords();if(edited!==null)b.words=edited;}return b;}
 async function runExport(body,prefix=''){const {job}=await request('/export',body);for(;;){const s=await request('/status/'+job);status(prefix+(s.message||'Rendering…'));if(s.status==='error')throw Error(s.error);if(s.status==='done')return s;await sleep(1000);}}
 function showDownload(s){$('vtt').hidden=!s.srt;if(s.srt)$('vtt').href='/text/'+s.file+'/vtt';$('download').href='/media/'+s.file;$('download').hidden=false;$('srt').hidden=!s.srt;if(s.srt)$('srt').href=s.srt;}
 $('export').onclick=async()=>{const button=$('export');button.disabled=true;$('download').hidden=true;$('srt').hidden=true;try{await requireSource();const s=await runExport(exportSettings(id,Number($('start').value),Number($('end').value)));showDownload(s);status('Ready · '+s.meta.w+' × '+s.meta.h+' · '+s.encoder+' · '+s.caption_words+' caption words');await refreshLibrary();}catch(e){status(e.message);}finally{button.disabled=false;}};
@@ -63,7 +63,7 @@ request('/highlights').then(showHighlights).catch(e=>status(e.message));refreshL
 
 $('make').onclick=async()=>{const url=$('url').value.trim();if(!url&&!id){status('Paste a video link or upload a file first.');return;}
  const b=$('make');b.disabled=true;$('make-results').hidden=false;$('make-results').querySelector('.star-ask')?.remove();$('make-grid').replaceChildren();$('make-progress').style.width='2%';
- try{const {job}=await request('/make',{...(url?{url}:{id}),count:Number($('count').value),mode:$('mode').value,source_height:Number(($('srcq')||{}).value)||1080,accurate:$('accurate').value,min_len:Number($('minlen').value),max_len:Number($('length').value),layout:makeLayout(),aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),cam:rect.cam,game:rect.game,top:Number($('top').value)/100,caption_style:style,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters(),sfx:$('make-sfx')?.value||'none',sfx_time:'hook',sfx_volume:0.75,language:$('language').value==='auto'?'':$('language').value});
+ try{const {job}=await request('/make',{...(url?{url}:{id}),count:Number($('count').value),mode:$('mode').value,source_height:Number(($('srcq')||{}).value)||1080,accurate:$('accurate').value,min_len:Number($('minlen').value),max_len:Number($('length').value),layout:makeLayout(),aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),cam:rect.cam,game:rect.game,top:Number($('top').value)/100,caption_style:style,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters(),sfx:$('make-sfx')?.value||'none',sfx_time:'hook',sfx_volume:0.75,brainrot_bg:$('brainrot-bg-select')?.value||'subway',brainrot_source:$('brainrot-source-select')?.value||'game',language:$('language').value==='auto'?'':$('language').value});
   const shown=new Set();
   for(;;){const s=await request('/make/'+job);$('make-status').textContent=(s.stage||s.status)+' · '+Math.round((s.progress||0)*100)+'%';$('make-progress').style.width=Math.max(2,(s.progress||0)*100)+'%';
    (s.clips||[]).forEach(c=>{if(shown.has(c.file))return;shown.add(c.file);const d=document.createElement('div');d.className='mk';d.dataset.file=c.file;
@@ -102,6 +102,26 @@ async function loadNativeLayouts(){
 function drawNativeLayout(source){
  const spec=layoutSpecs[layout];if(!spec)return;const pw=pc.canvas.width,ph=pc.canvas.height,sx=pw/spec.width,sy=ph/spec.height;
  if(spec.mode==='blur'){pc.save();pc.filter='blur(16px)';cover(source,{x:0,y:0,w:1,h:1},-15,-15,pw+30,ph+30);pc.restore();const ratio=Math.min(pw/sourceW,ph/sourceH),w=sourceW*ratio,h=sourceH*ratio;pc.drawImage(source,0,0,sourceW,sourceH,(pw-w)/2,(ph-h)/2,w,h);}
+ else if(spec.mode==='brainrot'){
+  const h_top=spec.layers[0].h,r_top=h_top/spec.height;
+  const srcType=$('brainrot-source-select')?.value||'game';
+  const topRect=srcType==='full'?{x:0,y:0,w:1,h:1}:(rect[srcType]||{x:0,y:0,w:1,h:1});
+  pc.save();
+  if(srcType==='cam'&&$('facecam-enhance')?.value!=='off'){
+   const c=Number($('filter-contrast')?.value||100),b=Number($('filter-brightness')?.value||0),s=Number($('filter-saturation')?.value||100),h=Number($('filter-hue')?.value||0);
+   pc.filter=`contrast(${c}%) brightness(${100+b}%) saturate(${s}%) hue-rotate(${h}deg)`;
+  }
+  cover(source,topRect,0,0,pw,ph*r_top);
+  pc.restore();
+  if(brainrotVideo&&brainrotVideo.readyState>=2){
+   cover(brainrotVideo,{x:0,y:0,w:1,h:1},0,ph*r_top,pw,ph*(1-r_top));
+  }else{
+   pc.save();pc.fillStyle='#151022';pc.fillRect(0,ph*r_top,pw,ph*(1-r_top));
+   pc.fillStyle='#d4fb58';pc.font='bold 14px Arial';pc.textAlign='center';
+   pc.fillText('🎮 '+($('brainrot-bg-select')?.selectedOptions[0]?.text||'Satisfying Loop'),pw/2,ph*(r_top+(1-r_top)/2));
+   pc.restore();
+  }
+ }
  else{pc.fillStyle='#000';pc.fillRect(0,0,pw,ph);for(const layer of spec.layers){pc.save();if(layer.source==='cam'&&$('facecam-enhance')?.value!=='off'){const c=Number($('filter-contrast')?.value||100),b=Number($('filter-brightness')?.value||0),s=Number($('filter-saturation')?.value||100),h=Number($('filter-hue')?.value||0);pc.filter=`contrast(${c}%) brightness(${100+b}%) saturate(${s}%) hue-rotate(${h}deg)`};if(layer.circle){pc.beginPath();pc.arc((layer.x+layer.w/2)*sx,(layer.y+layer.h/2)*sy,Math.min(layer.w*sx,layer.h*sy)/2,0,Math.PI*2);pc.clip();}cover(source,layer.source==='full'?{x:0,y:0,w:1,h:1}:rect[layer.source],layer.x*sx,layer.y*sy,layer.w*sx,layer.h*sy);pc.restore();}}
  if($('safe-zones')?.checked){pc.save();pc.fillStyle='#ff4ba52b';pc.fillRect(0,0,pw,ph*.05);pc.fillRect(0,ph*.875,pw,ph*.125);pc.fillRect(pw*.87,ph*.26,pw*.13,ph*.615);pc.restore();}
 }
@@ -359,4 +379,82 @@ $('sfx-upload-input')?.addEventListener('change', async()=>{
   if($('sfx-status')) $('sfx-status').textContent = '⚠ ' + err.message;
  }
 });
+
+// Brain-Rot / Viral Split Screen satisfying background video
+let brainrotVideo = null;
+function initBrainrot(){
+ if(!brainrotVideo){
+  brainrotVideo = document.createElement('video');
+  brainrotVideo.loop = true;
+  brainrotVideo.muted = true;
+  brainrotVideo.playsInline = true;
+  brainrotVideo.crossOrigin = 'anonymous';
+  brainrotVideo.onloadeddata = () => { if(layout==='brainrot') paint(); };
+ }
+ const sel = $('brainrot-bg-select');
+ if(!sel) return;
+ request('/brainrot/backgrounds').then(items=>{
+  if(!items || !items.length) return;
+  const current = sel.value;
+  sel.replaceChildren();
+  for(const it of items){
+   const opt = document.createElement('option');
+   opt.value = it.id;
+   opt.textContent = it.name;
+   if(it.id === current) opt.selected = true;
+   sel.append(opt);
+  }
+  updateBrainrotVideo();
+ }).catch(()=>{});
+ sel.onchange = updateBrainrotVideo;
+ $('brainrot-split')?.addEventListener('input', ()=>{
+  const v = Number($('brainrot-split').value || 50);
+  if($('brainrot-val-split')) $('brainrot-val-split').textContent = v + '% / ' + (100 - v) + '%';
+  $('top').value = v;
+  loadNativeLayouts().catch(()=>{});
+ });
+ $('brainrot-source-select')?.addEventListener('change', ()=>{ if(layout==='brainrot') paint(); });
+ $('brainrot-preview-btn')?.addEventListener('click', ()=>{
+  if(!brainrotVideo) return;
+  if(brainrotVideo.paused){
+   brainrotVideo.play().then(()=>{
+    status('Playing background loop preview...');
+    const loopPaint = () => {
+     if(!brainrotVideo.paused && layout==='brainrot'){
+      paint();
+      requestAnimationFrame(loopPaint);
+     }
+    };
+    requestAnimationFrame(loopPaint);
+   }).catch(e=>status('Preview play: ' + e.message));
+  } else {
+   brainrotVideo.pause();
+   status('Preview paused');
+  }
+ });
+ $('brainrot-upload-input')?.addEventListener('change', async(e)=>{
+  const f = e.target.files?.[0];
+  if(!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  if($('brainrot-status')) $('brainrot-status').textContent = 'Uploading custom background video...';
+  try {
+   const res = await fetch('/brainrot/upload', {method:'POST', body:fd});
+   const data = await res.json();
+   if(!res.ok) throw new Error(data.detail || 'Upload failed');
+   if($('brainrot-status')) $('brainrot-status').textContent = '✓ Added: ' + data.name;
+   initBrainrot();
+  } catch(err) {
+   if($('brainrot-status')) $('brainrot-status').textContent = '⚠ ' + err.message;
+  }
+ });
+}
+function updateBrainrotVideo(){
+ const sel = $('brainrot-bg-select');
+ if(!sel || !brainrotVideo) return;
+ brainrotVideo.src = '/brainrot/video/' + encodeURIComponent(sel.value);
+ brainrotVideo.load();
+ brainrotVideo.play().catch(()=>{});
+}
+initBrainrot();
 
