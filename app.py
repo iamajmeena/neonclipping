@@ -133,14 +133,23 @@ def export(b:dict):
  except ValueError as e:raise HTTPException(400,str(e))
  bg_inputs=[]
  bg_idx=1
+ bg_has_audio=False
+ bg_pos=b.get('brainrot_pos','bottom')
+ bg_crop=b.get('brainrot_crop','center')
+ bg_speed=float(b.get('brainrot_speed',1.0) or 1.0)
+ bg_vol=float(b.get('brainrot_volume',0.0) or 0.0)
  if layout=='brainrot':
   bg_id=b.get('brainrot_bg','subway')
   bg_p=brainrot.resolve_bg(ROOT,bg_id)
   if bg_p and bg_p.exists():
    bg_inputs=['-stream_loop','-1','-i',str(bg_p)]
    bg_idx=1+(len([a for a in plan.inputs if a=='-i']) if plan and plan.inputs else 0)
+   if bg_vol > 0.0:
+    prb=subprocess.run(['ffprobe','-v','error','-show_entries','stream=codec_type','-of','csv=p=0',str(bg_p)],capture_output=True,text=True)
+    if 'audio' in prb.stdout:
+     bg_has_audio=True
  top_source=b.get('brainrot_source','game')
- graph=render_graph(layout,rects,top,width,height,enhance=b.get('facecam_enhance','smart'),filters=b.get('filters'),bg_idx=bg_idx,top_source=top_source)
+ graph=render_graph(layout,rects,top,width,height,enhance=b.get('facecam_enhance','smart'),filters=b.get('filters'),bg_idx=bg_idx,top_source=top_source,bg_pos=bg_pos,bg_crop=bg_crop,bg_speed=bg_speed)
  job=uuid.uuid4().hex;out=DATA/(job+'.mp4');state[job]={'status':'running','message':'Preparing export'}
  def work():
   try:
@@ -162,6 +171,10 @@ def export(b:dict):
    fc=g2+f';[base]ass={ass}[v]'
    af,amap=plan.audio(dur) if plan else (None,None)
    if af:fc+=';'+af
+   if bg_has_audio and bg_vol > 0.0:
+    base_a = amap or '0:a?'
+    fc += f";[{bg_idx}:a]volume={bg_vol:.2f}[bg_a];[{base_a}][bg_a]amix=inputs=2:duration=first:dropout_transition=2[a_mix]"
+    amap = '[a_mix]'
    sfx_id=b.get('sfx')
    sfx_idx=bg_idx+(1 if bg_inputs else 0)
    sfx_inputs,sfx_fc,amap=sfx.mix_audio(ROOT,sfx_id,dur,b.get('sfx_time','hook'),b.get('sfx_volume',0.75),input_idx=sfx_idx,base_audio=amap or '0:a?')
@@ -379,7 +392,7 @@ def make(b:dict):
      except Exception as e:save(job,{'facecam':{'found':False,'reason':'detection failed: '+str(e)[:80]}})
     lang=language or ('hinglish' if (video_lang.startswith('hi') or c.get('language')=='hi') else None)
     body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.7 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
-          'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review'),'facecam_enhance':b.get('facecam_enhance','smart'),'filters':b.get('filters'),'sfx':b.get('sfx','none'),'sfx_time':b.get('sfx_time','hook'),'sfx_volume':b.get('sfx_volume',0.75),'brainrot_bg':b.get('brainrot_bg','subway'),'brainrot_source':b.get('brainrot_source','game')}
+          'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review'),'facecam_enhance':b.get('facecam_enhance','smart'),'filters':b.get('filters'),'sfx':b.get('sfx','none'),'sfx_time':b.get('sfx_time','hook'),'sfx_volume':b.get('sfx_volume',0.75),'brainrot_bg':b.get('brainrot_bg','subway'),'brainrot_source':b.get('brainrot_source','game'),'brainrot_pos':b.get('brainrot_pos','bottom'),'brainrot_crop':b.get('brainrot_crop','center'),'brainrot_speed':b.get('brainrot_speed',1.0),'brainrot_volume':b.get('brainrot_volume',0.0)}
     for k in styling.KEYS+brands.KEYS+hooks.KEYS:
      if b.get(k) not in (None,''):body[k]=b[k]
     if b.get('credit_auto') and uploader and not body.get('credit'):body['credit']='Clip: '+uploader[:40]

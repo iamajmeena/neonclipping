@@ -68,7 +68,7 @@ def geometry(name, top=.32, width=1080, height=1920):
             'w':w,'h':size,'circle':name=='circle'}]
     return {'mode':'layers','layers':layers,'width':width,'height':height}
 
-def render_graph(name, rects, top=.32, width=1080, height=1920, enhance='smart', filters=None, bg_idx=1, top_source='game'):
+def render_graph(name, rects, top=.32, width=1080, height=1920, enhance='smart', filters=None, bg_idx=1, top_source='game', bg_pos='bottom', bg_crop='center', bg_speed=1.0):
     spec = geometry(name, top, width, height)
     if spec['mode'] == 'blur':
         bw,bh=max(2,width//8*2),max(2,height//8*2)
@@ -76,6 +76,8 @@ def render_graph(name, rects, top=.32, width=1080, height=1920, enhance='smart',
     if spec['mode'] == 'brainrot':
         h_top = spec['layers'][0]['h']
         h_bot = spec['layers'][1]['h']
+        h_user = h_bot if bg_pos == 'top' else h_top
+        h_bg = h_top if bg_pos == 'top' else h_bot
         chosen = 0 if top_source == 'cam' else 1
         crop = ''
         if len(rects) > chosen:
@@ -111,7 +113,34 @@ def render_graph(name, rects, top=.32, width=1080, height=1920, enhance='smart',
                     extra_filters.append('unsharp=5:5:0.6:5:5:0.2')
             if extra_filters:
                 extra = ',' + ','.join(extra_filters)
-        return f"[0:v]{crop}scale={width}:{h_top}{scale_flags}:force_original_aspect_ratio=increase,crop={width}:{h_top},setsar=1{extra}[top_v];[{bg_idx}:v]scale={width}:{h_bot}{scale_flags}:force_original_aspect_ratio=increase,crop={width}:{h_bot},setsar=1[bot_v];[top_v][bot_v]vstack=inputs=2[base]"
+        
+        # Background crop mode
+        if bg_crop == 'left':
+            bg_scale_crop = f"scale={width}:{h_bg}{scale_flags}:force_original_aspect_ratio=increase,crop={width}:{h_bg}:0:(in_h-out_h)/2"
+        elif bg_crop == 'right':
+            bg_scale_crop = f"scale={width}:{h_bg}{scale_flags}:force_original_aspect_ratio=increase,crop={width}:{h_bg}:(in_w-out_w):(in_h-out_h)/2"
+        elif bg_crop == 'fit':
+            bg_scale_crop = f"scale={width}:{h_bg}{scale_flags}:force_original_aspect_ratio=decrease,pad={width}:{h_bg}:(ow-iw)/2:(oh-ih)/2:black"
+        else: # center default
+            bg_scale_crop = f"scale={width}:{h_bg}{scale_flags}:force_original_aspect_ratio=increase,crop={width}:{h_bg}:(in_w-out_w)/2:(in_h-out_h)/2"
+            
+        speed_filter = ''
+        try:
+            sp = float(bg_speed)
+            if sp > 0 and sp != 1.0:
+                speed_filter = f",setpts=PTS/{sp:.2f}"
+        except (ValueError, TypeError):
+            pass
+
+        user_v = f"[0:v]{crop}scale={width}:{h_user}{scale_flags}:force_original_aspect_ratio=increase,crop={width}:{h_user},setsar=1{extra}[user_v]"
+        bg_v = f"[{bg_idx}:v]{bg_scale_crop},setsar=1{speed_filter}[bg_v]"
+        
+        if bg_pos == 'top':
+            stack = "[bg_v][user_v]vstack=inputs=2[base]"
+        else:
+            stack = "[user_v][bg_v]vstack=inputs=2[base]"
+            
+        return f"{user_v};{bg_v};{stack}"
     layers = spec['layers']; parts=[]
     if len(layers)>1: parts.append('[0:v]split='+str(len(layers))+''.join(f'[s{i}]' for i in range(len(layers))))
     for i, layer in enumerate(layers):

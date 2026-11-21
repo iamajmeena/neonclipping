@@ -48,6 +48,63 @@ def resolve_bg(root_dir, bg_id):
             return p
     return None
 
+def import_link(root_dir, url):
+    from ytdl import YDL
+    import yt_dlp
+    d = brainrot_dir(root_dir)
+    with YDL({'extract_flat': False}) as y:
+        info = y.extract_info(url, download=False)
+    title = info.get('title') or 'Viral Clip'
+    clean_title = re.sub(r'[^a-zA-Z0-9_\- ]', '', title).strip() or 'gameplay'
+    clean_title = clean_title[:30]
+    out_id = f"{clean_title}_{uuid.uuid4().hex[:6]}"
+    raw_target = d / 'custom' / f"raw_{out_id}.mp4"
+    final_target = d / 'custom' / f"{out_id}.mp4"
+    
+    duration = info.get('duration') or 0
+    dl_opts = {
+        'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+        'outtmpl': str(raw_target),
+        'quiet': True,
+        'no_warnings': True,
+    }
+    if duration > 45:
+        dl_opts['download_ranges'] = yt_dlp.utils.download_range_func(None, [(5, 35)])
+    
+    with YDL(dl_opts) as y:
+        y.download([url])
+    
+    actual_file = raw_target
+    if not actual_file.exists():
+        for cand in (d / 'custom').glob(f"raw_{out_id}.*"):
+            actual_file = cand
+            break
+            
+    if not actual_file.exists():
+        raise RuntimeError("Failed to download video from link")
+        
+    has_audio = False
+    probe = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', str(actual_file)],
+                           capture_output=True, text=True)
+    if 'audio' in probe.stdout:
+        has_audio = True
+
+    cmd = [
+        'ffmpeg', '-y', '-v', 'error',
+        '-i', str(actual_file),
+        '-vf', 'scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,fps=30',
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '22'
+    ]
+    if has_audio:
+        cmd.extend(['-c:a', 'aac', '-b:a', '128k'])
+    else:
+        cmd.extend(['-an'])
+    cmd.append(str(final_target))
+    subprocess.run(cmd, check=True)
+    actual_file.unlink(missing_ok=True)
+    
+    return {'id': f'custom:{final_target.name}', 'name': f'📁 {clean_title} (Custom)', 'builtin': False}
+
 def attach(app, root_dir):
     from fastapi import UploadFile, File, HTTPException
     from fastapi.responses import FileResponse
@@ -82,6 +139,16 @@ def attach(app, root_dir):
             target.unlink(missing_ok=True)
             raise HTTPException(400, 'Invalid video file')
         return {'id': f'custom:{out_name}', 'name': f'📁 {stem} (Custom)', 'builtin': False}
+
+    @app.post('/brainrot/import-link')
+    def import_bg_link(b: dict):
+        url = str(b.get('url', '')).strip()
+        if not url:
+            raise HTTPException(400, 'Please provide a valid YouTube/video link')
+        try:
+            return import_link(root_dir, url)
+        except Exception as e:
+            raise HTTPException(400, f'Failed to import link: {str(e)[:150]}')
 
     @app.delete('/brainrot/{filename}')
     def delete_custom_bg(filename: str):

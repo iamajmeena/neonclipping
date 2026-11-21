@@ -48,7 +48,7 @@ function collectWords(){if(words&&wordRange===signature()){const duration=Number
 function renderWords(){const editor=$('words');editor.replaceChildren();const timing=$('timing-editor')?.checked;editor.classList.toggle('timing',timing);for(const word of words||[]){const input=document.createElement('input');input.value=word.text;input.title=word.start.toFixed(2)+'–'+word.end.toFixed(2)+'s';input.oninput=()=>word.text=input.value;if(!timing){editor.append(input);continue;}const row=document.createElement('div');row.className='word-timing';row.append(input);for(const key of ['start','end']){const field=document.createElement('input');field.type='number';field.step='.01';field.min='0';field.value=Math.round(word[key]*1000)/1000;field.setAttribute('aria-label',key+' '+word.text);field.onchange=()=>{word[key]=Number(field.value);field.setAttribute('aria-invalid',String(!Number.isFinite(word[key])||word.start<0||word.end<=word.start));};row.append(field);}const merge=document.createElement('button');merge.textContent='Merge next';const index=words.indexOf(word);merge.disabled=index===words.length-1;merge.onclick=()=>{const next=words[index+1];words.splice(index,2,{start:Math.min(word.start,next.start),end:Math.max(word.end,next.end),text:word.text+' '+next.text});renderWords();};const split=document.createElement('button');split.textContent='Split words';split.onclick=()=>{const tokens=word.text.trim().split(/\s+/);if(tokens.length<2){status('Type two or more words in this row to split it.');return;}const total=tokens.reduce((n,t)=>n+t.length+1,0);let time=word.start;const parts=tokens.map(t=>{const start=time;time+=(word.end-word.start)*(t.length+1)/total;return{start,end:time,text:t};});words.splice(index,1,...parts);renderWords();status('Words split with estimated within-cue timings; review them before applying.');};row.append(merge,split);editor.append(row);}}
 async function generateSubtitles(){await requireSource();status('Starting local subtitles…');const range=signature();const {job}=await request('/transcribe',{id,start:Number($('start').value),end:Number($('end').value),language:$('language').value});for(;;){const s=await request('/status/'+job);status(s.message||s.status);if(s.status==='error')throw Error(s.error);if(s.status==='done'){if(signature()!==range)throw Error('Selected range changed. Generate subtitles for the current range.');words=s.words;wordRange=range;renderWords();const text=words.map(w=>w.text).join(' ');if(!$('clip-title').value)$('clip-title').value=text.split(/\s+/).slice(0,9).join(' ');if(!$('post-caption').value)$('post-caption').value=text.slice(0,220)+(text.length>220?'…':'')+'\n\n#Gaming #Clips';status(words.length?'Subtitles ready. Edit any word before exporting.':'No speech detected in this range.');return;}await sleep(1100);}}
 $('transcribe').onclick=async()=>{$('transcribe').disabled=true;try{await generateSubtitles();}catch(e){status(e.message);}finally{$('transcribe').disabled=false;}};
-function exportSettings(source,start,end){const b={id:source,...rect,layout,aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),top:Number($('top').value)/100,start,end,captions:$('captions').checked,caption_style:style,caption_y:Number($('caption-y').value),language:$('language').value,hook:$('hook').value,title:$('clip-title').value,post_caption:$('post-caption').value,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters(),sfx:$('sfx-select')?.value||'none',sfx_time:$('sfx-time')?.value||'hook',sfx_volume:(Number($('sfx-volume')?.value||75)/100),brainrot_bg:$('brainrot-bg-select')?.value||'subway',brainrot_source:$('brainrot-source-select')?.value||'game'};if(source===id&&start===Number($('start').value)&&end===Number($('end').value)){const edited=collectWords();if(edited!==null)b.words=edited;}return b;}
+function exportSettings(source,start,end){const b={id:source,...rect,layout,aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),top:Number($('top').value)/100,start,end,captions:$('captions').checked,caption_style:style,caption_y:Number($('caption-y').value),language:$('language').value,hook:$('hook').value,title:$('clip-title').value,post_caption:$('post-caption').value,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters(),sfx:$('sfx-select')?.value||'none',sfx_time:$('sfx-time')?.value||'hook',sfx_volume:(Number($('sfx-volume')?.value||75)/100),brainrot_bg:$('brainrot-bg-select')?.value||'subway',brainrot_source:$('brainrot-source-select')?.value||'game',brainrot_pos:$('brainrot-pos-select')?.value||'bottom',brainrot_crop:$('brainrot-crop-select')?.value||'center',brainrot_speed:Number($('brainrot-speed-select')?.value||1.0),brainrot_volume:Number($('brainrot-vol-select')?.value||0.0)};if(source===id&&start===Number($('start').value)&&end===Number($('end').value)){const edited=collectWords();if(edited!==null)b.words=edited;}return b;}
 async function runExport(body,prefix=''){const {job}=await request('/export',body);for(;;){const s=await request('/status/'+job);status(prefix+(s.message||'Rendering…'));if(s.status==='error')throw Error(s.error);if(s.status==='done')return s;await sleep(1000);}}
 function showDownload(s){$('vtt').hidden=!s.srt;if(s.srt)$('vtt').href='/text/'+s.file+'/vtt';$('download').href='/media/'+s.file;$('download').hidden=false;$('srt').hidden=!s.srt;if(s.srt)$('srt').href=s.srt;}
 $('export').onclick=async()=>{const button=$('export');button.disabled=true;$('download').hidden=true;$('srt').hidden=true;try{await requireSource();const s=await runExport(exportSettings(id,Number($('start').value),Number($('end').value)));showDownload(s);status('Ready · '+s.meta.w+' × '+s.meta.h+' · '+s.encoder+' · '+s.caption_words+' caption words');await refreshLibrary();}catch(e){status(e.message);}finally{button.disabled=false;}};
@@ -63,7 +63,7 @@ request('/highlights').then(showHighlights).catch(e=>status(e.message));refreshL
 
 $('make').onclick=async()=>{const url=$('url').value.trim();if(!url&&!id){status('Paste a video link or upload a file first.');return;}
  const b=$('make');b.disabled=true;$('make-results').hidden=false;$('make-results').querySelector('.star-ask')?.remove();$('make-grid').replaceChildren();$('make-progress').style.width='2%';
- try{const {job}=await request('/make',{...(url?{url}:{id}),count:Number($('count').value),mode:$('mode').value,source_height:Number(($('srcq')||{}).value)||1080,accurate:$('accurate').value,min_len:Number($('minlen').value),max_len:Number($('length').value),layout:makeLayout(),aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),cam:rect.cam,game:rect.game,top:Number($('top').value)/100,caption_style:style,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters(),sfx:$('make-sfx')?.value||'none',sfx_time:'hook',sfx_volume:0.75,brainrot_bg:$('brainrot-bg-select')?.value||'subway',brainrot_source:$('brainrot-source-select')?.value||'game',language:$('language').value==='auto'?'':$('language').value});
+ try{const {job}=await request('/make',{...(url?{url}:{id}),count:Number($('count').value),mode:$('mode').value,source_height:Number(($('srcq')||{}).value)||1080,accurate:$('accurate').value,min_len:Number($('minlen').value),max_len:Number($('length').value),layout:makeLayout(),aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),cam:rect.cam,game:rect.game,top:Number($('top').value)/100,caption_style:style,facecam_enhance:$('facecam-enhance')?.value||'smart',filters:getFacecamFilters(),sfx:$('make-sfx')?.value||'none',sfx_time:'hook',sfx_volume:0.75,brainrot_bg:$('brainrot-bg-select')?.value||'subway',brainrot_source:$('brainrot-source-select')?.value||'game',brainrot_pos:$('brainrot-pos-select')?.value||'bottom',brainrot_crop:$('brainrot-crop-select')?.value||'center',brainrot_speed:Number($('brainrot-speed-select')?.value||1.0),brainrot_volume:Number($('brainrot-vol-select')?.value||0.0),language:$('language').value==='auto'?'':$('language').value});
   const shown=new Set();
   for(;;){const s=await request('/make/'+job);$('make-status').textContent=(s.stage||s.status)+' · '+Math.round((s.progress||0)*100)+'%';$('make-progress').style.width=Math.max(2,(s.progress||0)*100)+'%';
    (s.clips||[]).forEach(c=>{if(shown.has(c.file))return;shown.add(c.file);const d=document.createElement('div');d.className='mk';d.dataset.file=c.file;
@@ -105,20 +105,38 @@ function drawNativeLayout(source){
  else if(spec.mode==='brainrot'){
   const h_top=spec.layers[0].h,r_top=h_top/spec.height;
   const srcType=$('brainrot-source-select')?.value||'game';
-  const topRect=srcType==='full'?{x:0,y:0,w:1,h:1}:(rect[srcType]||{x:0,y:0,w:1,h:1});
+  const pos=$('brainrot-pos-select')?.value||'bottom';
+  const cropMode=$('brainrot-crop-select')?.value||'center';
+  const userRect=srcType==='full'?{x:0,y:0,w:1,h:1}:(rect[srcType]||{x:0,y:0,w:1,h:1});
+  const u_y=pos==='top'?ph*r_top:0;
+  const u_h=pos==='top'?ph*(1-r_top):ph*r_top;
+  const bg_y=pos==='top'?0:ph*r_top;
+  const bg_h=pos==='top'?ph*r_top:ph*(1-r_top);
   pc.save();
   if(srcType==='cam'&&$('facecam-enhance')?.value!=='off'){
    const c=Number($('filter-contrast')?.value||100),b=Number($('filter-brightness')?.value||0),s=Number($('filter-saturation')?.value||100),h=Number($('filter-hue')?.value||0);
    pc.filter=`contrast(${c}%) brightness(${100+b}%) saturate(${s}%) hue-rotate(${h}deg)`;
   }
-  cover(source,topRect,0,0,pw,ph*r_top);
+  cover(source,userRect,0,u_y,pw,u_h);
   pc.restore();
   if(brainrotVideo&&brainrotVideo.readyState>=2){
-   cover(brainrotVideo,{x:0,y:0,w:1,h:1},0,ph*r_top,pw,ph*(1-r_top));
+   if(cropMode==='fit'){
+    pc.save();pc.fillStyle='#000';pc.fillRect(0,bg_y,pw,bg_h);
+    const vw=brainrotVideo.videoWidth||1,vh=brainrotVideo.videoHeight||1;
+    const r=Math.min(pw/vw,bg_h/vh),dw=vw*r,dh=vh*r;
+    pc.drawImage(brainrotVideo,(pw-dw)/2,bg_y+(bg_h-dh)/2,dw,dh);
+    pc.restore();
+   }else if(cropMode==='left'){
+    cover(brainrotVideo,{x:0,y:0,w:0.7,h:1},0,bg_y,pw,bg_h);
+   }else if(cropMode==='right'){
+    cover(brainrotVideo,{x:0.3,y:0,w:0.7,h:1},0,bg_y,pw,bg_h);
+   }else{
+    cover(brainrotVideo,{x:0,y:0,w:1,h:1},0,bg_y,pw,bg_h);
+   }
   }else{
-   pc.save();pc.fillStyle='#151022';pc.fillRect(0,ph*r_top,pw,ph*(1-r_top));
+   pc.save();pc.fillStyle='#151022';pc.fillRect(0,bg_y,pw,bg_h);
    pc.fillStyle='#d4fb58';pc.font='bold 14px Arial';pc.textAlign='center';
-   pc.fillText('🎮 '+($('brainrot-bg-select')?.selectedOptions[0]?.text||'Satisfying Loop'),pw/2,ph*(r_top+(1-r_top)/2));
+   pc.fillText('🎮 '+($('brainrot-bg-select')?.selectedOptions[0]?.text||'Satisfying Loop'),pw/2,bg_y+bg_h/2);
    pc.restore();
   }
  }
@@ -430,6 +448,40 @@ function initBrainrot(){
   } else {
    brainrotVideo.pause();
    status('Preview paused');
+  }
+ });
+ $('brainrot-pos-select')?.addEventListener('change', ()=>{ if(layout==='brainrot') paint(); });
+ $('brainrot-crop-select')?.addEventListener('change', ()=>{ if(layout==='brainrot') paint(); });
+ $('brainrot-speed-select')?.addEventListener('change', ()=>{
+  if(brainrotVideo) brainrotVideo.playbackRate = Number($('brainrot-speed-select').value || 1.0);
+ });
+ $('brainrot-vol-select')?.addEventListener('change', ()=>{
+  if(brainrotVideo) brainrotVideo.volume = Number($('brainrot-vol-select').value || 0.0);
+ });
+ $('brainrot-import-btn')?.addEventListener('click', async()=>{
+  const url = $('brainrot-link-input')?.value.trim();
+  if(!url){ status('Please paste a YouTube or video link first'); return; }
+  const btn = $('brainrot-import-btn');
+  btn.disabled = true;
+  if($('brainrot-status')) $('brainrot-status').textContent = '⏳ Downloading & preparing viral gameplay loop...';
+  try {
+   const res = await fetch('/brainrot/import-link', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url})
+   });
+   const data = await res.json();
+   if(!res.ok) throw new Error(data.detail || 'Import failed');
+   if($('brainrot-status')) $('brainrot-status').textContent = '✓ Imported: ' + data.name;
+   $('brainrot-link-input').value = '';
+   await initBrainrot();
+   const sel = $('brainrot-bg-select');
+   if(sel){ sel.value = data.id; updateBrainrotVideo(); }
+   if(layout==='brainrot') paint();
+  } catch(err) {
+   if($('brainrot-status')) $('brainrot-status').textContent = '⚠ ' + err.message;
+  } finally {
+   btn.disabled = false;
   }
  });
  $('brainrot-upload-input')?.addEventListener('change', async(e)=>{
