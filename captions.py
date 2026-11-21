@@ -190,6 +190,7 @@ def write(words,style,folder,name,hook='',position=1450,hook_y=300,width=1080,he
             continue
         for n,word in enumerate(group):
             a=max(begin,word['start']);b=group[n+1]['start'] if n+1<len(group) else end
+            if n+1<len(group):b=min(b,max(word['end'],a)+0.8)      # quiet part: the line goes away instead of hanging on screen
             if b<=a:continue
             if anim=='one_by_one':visible=[n]
             elif anim in ('build_up','pop_in'):visible=list(range(n+1))

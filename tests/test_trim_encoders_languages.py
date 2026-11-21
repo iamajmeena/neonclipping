@@ -122,7 +122,13 @@ class Encoders(unittest.TestCase):
 
     def test_nvidia_uses_nvenc_first(self):
         with mock.patch.object(encoders, 'works', lambda n: True):
-            self.assertEqual(self.names(), ['h264_nvenc', 'h264_videotoolbox', 'libx264'])
+            self.assertEqual(self.names(), ['h264_nvenc', 'h264_amf', 'h264_qsv', 'h264_videotoolbox', 'libx264'])
+
+    def test_amd_and_intel_gpus(self):
+        with mock.patch.object(encoders, 'works', lambda n: n in ('h264_amf', 'libx264')):
+            self.assertEqual(self.names(), ['h264_amf', 'libx264'])
+        with mock.patch.object(encoders, 'works', lambda n: n in ('h264_qsv', 'libx264')):
+            self.assertEqual(self.names(), ['h264_qsv', 'libx264'])
 
     def test_override_to_x264(self):
         with mock.patch.dict(os.environ, {'NEONCLIPPING_ENCODER': 'x264'}), mock.patch.object(encoders, 'works', lambda n: True):

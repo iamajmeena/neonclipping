@@ -3,7 +3,8 @@ import json, subprocess, uuid, threading, shutil
 import sys
 import time
 import os
-import ytdl      # first: keeps yt-dlp fresh before it is imported, and handles YouTube's bot check
+import compat    # first: PyAV 19 shim and a portable FFmpeg when none is installed
+import ytdl      # then: keeps yt-dlp fresh before it is imported, and handles YouTube's bot check
 import report    # local error log + "Report a problem"
 import encoders  # picks NVENC / VideoToolbox / x264 by what works on this computer
 import languages
@@ -27,6 +28,7 @@ ROOT=Path(__file__).resolve().parent
 DATA=Path(os.environ.get('NEONCLIPPING_DATA_DIR',str(ROOT/'data'))).resolve();DATA.mkdir(parents=True,exist_ok=True)
 app=FastAPI()
 state={}
+import watchdog;watchdog.start(state,report.log_error)      # flags a job that has not moved for 15 minutes and logs where it waits
 def probe(p):
  r=subprocess.run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(p)],capture_output=True,text=True,check=True)
  j=json.loads(r.stdout);v=next(x for x in j['streams'] if x['codec_type']=='video')
@@ -126,6 +128,9 @@ def export(b:dict):
  if b.get('captions') and 'words' in b:
   try:b={**b,'words':subtitles.validate_words(b['words'],end-start)}
   except (ValueError,KeyError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
+ import camfx
+ try:cam_fx=camfx.filter(b)
+ except Exception:cam_fx=''
  try:brands.appearance(b)
  except (ValueError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
  try:hooks.settings(b)
@@ -150,7 +155,7 @@ def export(b:dict):
     if 'audio' in prb.stdout:
      bg_has_audio=True
  top_source=b.get('brainrot_source','game')
- graph=render_graph(layout,rects,top,width,height,enhance=b.get('facecam_enhance','smart'),filters=b.get('filters'),bg_idx=bg_idx,top_source=top_source,bg_pos=bg_pos,bg_crop=bg_crop,bg_speed=bg_speed)
+ graph=render_graph(layout,rects,top,width,height,enhance=b.get('facecam_enhance','smart'),filters=b.get('filters'),bg_idx=bg_idx,top_source=top_source,bg_pos=bg_pos,bg_crop=bg_crop,bg_speed=bg_speed,cam_fx=cam_fx)
  job=uuid.uuid4().hex;out=DATA/(job+'.mp4');state[job]={'status':'running','message':'Preparing export'}
  def work():
   try:
@@ -174,6 +179,10 @@ def export(b:dict):
    else:fc=g2+f';[base]ass={ass}[v]'
    af,amap=plan.audio(dur) if plan else (None,None)
    if af:fc+=';'+af
+   vmap='[v]';fade_af=None
+   if hooks.fade_on(b) and dur>1.2:
+    fc+=f';[v]fade=t=in:st=0:d=0.25,fade=t=out:st={max(0,dur-0.3):.2f}:d=0.3[vfade]';vmap='[vfade]'
+    if not af:fade_af=f'afade=t=in:st=0:d=0.25,afade=t=out:st={max(0,dur-0.3):.2f}:d=0.3'
    if bg_has_audio and bg_vol > 0.0:
     base_a = amap or '0:a?'
     fc += f";[{bg_idx}:a]volume={bg_vol:.2f}[bg_a];[{base_a}][bg_a]amix=inputs=2:duration=first:dropout_transition=2[a_mix]"
@@ -183,10 +192,13 @@ def export(b:dict):
    sfx_inputs,sfx_fc,amap=sfx.mix_audio(ROOT,sfx_id,dur,b.get('sfx_time','hook'),b.get('sfx_volume',0.75),input_idx=sfx_idx,base_audio=amap or '0:a?')
    if sfx_fc:fc+=';'+sfx_fc
    state[job].update(message='Rendering vertical clip with '+style+' captions' if words else 'Rendering vertical clip')
-   base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),*bg_inputs,*sfx_inputs,'-filter_complex',fc,'-map','[v]','-map',amap or '0:a?','-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
+   base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),*bg_inputs,*sfx_inputs,'-filter_complex',fc,'-map',vmap,'-map',amap or '0:a?',*(['-af',fade_af] if fade_af else []),'-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
    if fps:base+=['-r',str(fps),'-fps_mode','cfr']
    for encoder in encoders.h264(cq=20,x264_preset='fast',nv_preset='p5'):
-    r=subprocess.run(base+encoder+['-pix_fmt','yuv420p',str(out)],capture_output=True,text=True,cwd=str(DATA))
+    # NVIDIA: also decode the source on the GPU (4K VP9/AV1 on the CPU is what pinned it at 100%); retry on the CPU if that fails.
+    for hw in ((['-hwaccel','auto'],[]) if encoder[1]!='libx264' and encoder[1]!='h264_videotoolbox' else ([],)):
+     r=subprocess.run(base[:4]+hw+base[4:]+encoder+['-pix_fmt','yuv420p',str(out)],capture_output=True,text=True,cwd=str(DATA))
+     if r.returncode==0:break
     if r.returncode==0:break
    if r.returncode:raise RuntimeError(r.stderr[-900:])
    finished={'status':'done','file':job,'meta':probe(out),'encoder':encoder[1],'caption_words':len(words),'srt':f'/text/{job}/srt' if words else None}
@@ -349,7 +361,16 @@ def make(b:dict):
     with _yt({'format':'ba[ext=m4a]/ba/worst','outtmpl':str(DATA/(job+'.audio.%(ext)s')),'progress_hooks':[hook]}) as y:y.download([url])
     p=next(f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl'));duration=_dur(p);sid=job
     save(job,{'meta':{'duration':duration},'stage':'Finding moments in audio','progress':.12})
-    found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,lambda f,m:save(job,{'stage':m,'progress':.12+.4*f}),language,DATA,min_len,False,yt_words,False,W,False,profile,focus_brief,include_phrases,exclude_phrases)
+    beat={'live':True,'seen':time.monotonic()}
+    def scan_report(f,m):beat['seen']=time.monotonic();save(job,{'stage':m,'progress':.12+.4*f})
+    def heartbeat():
+     t0=time.monotonic()
+     while beat['live']:
+      time.sleep(4)
+      if beat['live'] and time.monotonic()-beat['seen']>=4:save(job,{'stage':f'Finding moments in audio · working {int(time.monotonic()-t0)}s (long videos take a few minutes)'})
+    threading.Thread(target=heartbeat,daemon=True).start()
+    try:found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,scan_report,language,DATA,min_len,False,yt_words,False,W,False,profile,focus_brief,include_phrases,exclude_phrases)
+    finally:beat['live']=False
     found=choose(found,lambda c:lowres_section(url,c))
     if not found:
      save(job,{'status':'done','stage':'No moments matched the transcript filters. Broaden the focus or required phrases.','progress':1,'clips':[],'elapsed_seconds':round(time.monotonic()-began,2)});return
@@ -358,9 +379,14 @@ def make(b:dict):
     from yt_dlp.utils import download_range_func
     def section(i,c):
      name=uuid.uuid4().hex
-     with _yt({'format':source_format(src_h),'merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
-               'download_ranges':download_range_func(None,[(max(0,c['start']-PAD),c['end']+1)])}) as y:y.download([url])
-     return name
+     for attempt in range(3):     # an FFmpeg crash on one section (seen on some FFmpeg 9.1 builds) must not lose the whole video
+      try:
+       with _yt({'format':source_format(src_h),'merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
+                 'download_ranges':download_range_func(None,[(max(0,c['start']-PAD),c['end']+1)])}) as y:y.download([url])
+       return name
+      except Exception:
+       if attempt==2:raise
+       time.sleep(3*(attempt+1))
     pool=ThreadPoolExecutor(max_workers=3);sections=[pool.submit(section,i,c) for i,c in enumerate(found)]
    else:
     if url:
@@ -375,7 +401,7 @@ def make(b:dict):
    done=[];cam_use,game_use,cam_checked=cam,game,not b.get('cam_auto')
    uploader=str((info.get('channel') or info.get('uploader') or '')) if url else ''
    for i,c in enumerate(found):
-    if not moments and c.get('transcript'):
+    if not moments and c.get('transcript') and b.get('hook_enabled') is not False:
      try:
       import smart
       model=smart._model(profile!='action' or mode=='deep')
@@ -524,6 +550,20 @@ def live_stop(lid:str):
  if lid not in LIVE:raise HTTPException(404,'Live session not found.')
  LIVE[lid].stop();return {'ok':True}
 
+@app.get('/supporters')
+def supporters():
+ """Names shown under 'Our supporters' (supporters.json). Only plain short text is served; add a person only with their OK."""
+ try:raw=json.loads((ROOT/'supporters.json').read_text(encoding='utf-8')).get('supporters',[])
+ except (OSError,ValueError,AttributeError):raw=[]
+ out=[]
+ for r in raw if isinstance(raw,list) else []:
+  if not isinstance(r,dict):continue
+  name=' '.join(str(r.get('name') or '').split())[:40]
+  if not name:continue
+  amount=' '.join(str(r.get('amount') or '').split())[:14]
+  out.append({'name':name,'amount':amount})
+ return {'supporters':out[:300]}
+
 @app.get('/donate')
 def donate():
  """Optional donate links (donate.json or NEONCLIPPING_DONATE_RAZORPAY / NEONCLIPPING_DONATE_PAYPAL). Only https links are served; nothing is unlocked by donating."""
@@ -548,7 +588,8 @@ def feedback(b:dict):
  if not f.exists():raise HTTPException(404,'Clip not found.')
  m=json.loads(f.read_text(encoding='utf-8')).get('settings',{})
  if not m.get('features'):raise HTTPException(400,'This clip has no scoring data (made before ratings existed).')
- return learn.record(DATA,file,rating,m['features'],{'layout':m.get('layout'),'style':m.get('caption_style')})
+ try:return learn.record(DATA,file,rating,m['features'],{'layout':m.get('layout'),'style':m.get('caption_style')})
+ except ValueError as error:raise HTTPException(400,str(error))
 
 @app.get('/feedback/summary')
 def feedback_summary():
@@ -579,6 +620,18 @@ def report_send(b:dict):
 def report_log(b:dict):
  """The page reports errors it caught itself (a request that failed)."""
  report.log_error(str(b.get('stage') or 'page')[:80],str(b.get('error') or '')[:700]);return {'ok':True}
+@app.get('/update/status')
+def update_status():
+ import updater
+ busy=any(row.get('status') in ('running','queued','starting','recording') for row in list(state.values()))
+ return updater.status(ROOT,busy)
+@app.post('/update/apply')
+def update_apply():
+ import updater
+ ok,msg=updater.apply(ROOT,lambda:any(row.get('status') in ('running','queued','starting','recording') for row in list(state.values())))
+ if not ok:raise HTTPException(409,msg)
+ return {'ok':True,'message':msg}
+
 @app.get('/runtime')
 def runtime():
  return {'active':[{'id':job,'status':row.get('status'),'stage':row.get('stage') or row.get('message','')} for job,row in list(state.items()) if row.get('status') in ('running','queued','starting','recording')]}

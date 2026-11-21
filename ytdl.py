@@ -64,8 +64,21 @@ def _config():
     cookie_file = os.environ.get('NEONCLIPPING_COOKIES_FILE') or saved.get('cookies_file') or str(DATA / 'youtube_cookies.txt')
     return browser, cookie_file
 
+def js_runtimes():
+    """YouTube needs a JavaScript runtime to unlock every video quality. yt-dlp only looks for Deno by default; also allow Node."""
+    import shutil
+    found = {}
+    for name in ('deno', 'node'):
+        if shutil.which(name):
+            found[name] = {}
+    return found
+
+
 def variants(base):
     """Option sets to try, best first. Each entry is (options, is_default)."""
+    runtimes = js_runtimes()
+    if runtimes and 'js_runtimes' not in base:
+        base = {**base, 'js_runtimes': runtimes}
     browser, cookie_file = _config()
     out = []
     if Path(cookie_file).is_file():

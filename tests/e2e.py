@@ -4,7 +4,7 @@
     python tests/e2e.py make                                   # heavy: real downloads + transcription
 
 Every check is recorded (PASS / FAIL + evidence + seconds) in tests/report.json and tests/REPORT.md.
-Test files go to tests/out/. The user's feedback ratings are backed up and restored around the feedback group.
+Test files go to tests/out/. The feedback group starts a private local server and never changes the user's ratings.
 """
 import json
 import os
@@ -289,38 +289,54 @@ def g_edit():
 
 
 def g_feedback():
+    """Exercise the real API in a private data folder, never user feedback."""
+    import socket
+    import tempfile
+    global BASE
     g = 'feedback'
-    fb, wt = DATA / 'feedback.jsonl', DATA / 'weights.json'
-    bak = {}
-    for f in (fb, wt):
-        bak[f] = f.read_bytes() if f.exists() else None
-    try:
-        feats = {'loud': .8, 'shout': .5, 'words': .9, 'motion': .4, 'flash': .1, 'strobe': 0, 'cuts': .2, 'llm': .7, 'chat': None}
-        lib = api('/library')[1]
-        rec = lib[0]['id']
-        j = json.loads((DATA / (rec + '.json')).read_text(encoding='utf-8'))
-        j['settings']['features'] = feats
-        tmp = DATA / ('e2efb' + rec[:6] + '.json')
-        # feedback needs a clip record with features: write a temp record
-        tmp_id = 'e2efb' + rec[:8]
-        (DATA / (tmp_id + '.json')).write_text(json.dumps({'source': j['source'], 'settings': j['settings'], 'result': j['result']}), encoding='utf-8')
-        s0 = api('/feedback/summary')[1]
-        R.check(g, 'summary readable', lambda: ('ratings' in s0, s0))
-        R.check(g, 'rating 5 accepted', lambda: (lambda r: (r[0] == 200, r[1]))(api('/feedback', {'file': tmp_id, 'rating': 5})))
-        R.check(g, 'rating 0 / 6 / text rejected', lambda: (all(api('/feedback', {'file': tmp_id, 'rating': v})[0] in (400, 422) for v in (0, 6, 'x')), ''))
-        R.check(g, 'unknown clip rejected', lambda: (api('/feedback', {'file': 'nope', 'rating': 3})[0] in (400, 404), ''))
-        for i in range(9):
-            api('/feedback', {'file': tmp_id, 'rating': 1 + i % 5})
-        s1 = api('/feedback/summary')[1]
-        R.check(g, 'after 10 ratings the weights are fitted', lambda: (s1.get('fitted') is True, {k: s1.get(k) for k in ('ratings', 'fitted', 'alpha')}))
-        R.check(g, 'weights sum to 1 and stay positive', lambda: (lambda w: (abs(sum(w.values()) - 1) < .01 and min(w.values()) > 0, round(sum(w.values()), 3)))(s1['weights']))
-        (DATA / (tmp_id + '.json')).unlink(missing_ok=True)
-    finally:
-        for f, b in bak.items():
-            if b is None:
-                f.unlink(missing_ok=True)
-            else:
-                f.write_bytes(b)
+    previous_base=BASE
+    with tempfile.TemporaryDirectory(prefix='neon-feedback-') as directory:
+        data=Path(directory)
+        with socket.socket() as reservation:
+            reservation.bind(('127.0.0.1',0));port=reservation.getsockname()[1]
+        env=dict(os.environ,NEONCLIPPING_DATA_DIR=str(data),NEONCLIPPING_PORT=str(port))
+        with (data/'server.log').open('w') as log:
+            proc=subprocess.Popen([sys.executable,str(ROOT/'app.py')],cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            try:
+                BASE='http://127.0.0.1:'+str(port)
+                for attempt in range(60):
+                    try:
+                        if api('/healthz',timeout=2)[0]==200:break
+                    except Exception:pass
+                    if proc.poll() is not None:raise RuntimeError((data/'server.log').read_text())
+                    time.sleep(.2)
+                else:raise RuntimeError('Isolated feedback server did not start.')
+                def fixture(index):
+                    name='feedbackfixture'+str(index)
+                    features={'words':index/7,'motion':1-index/7,'chat':None}
+                    (data/(name+'.json')).write_text(json.dumps({'source':'fixture','settings':{'features':features},'result':{'status':'done'}}))
+                    return name
+                first=fixture(0)
+                R.check(g,'private summary starts empty',lambda:(api('/feedback/summary')[1]['ratings']==0,''))
+                R.check(g,'rating 5 accepted',lambda:(api('/feedback',{'file':first,'rating':5})[0]==200,''))
+                R.check(g,'rating 0 / 6 / text rejected',lambda:(all(api('/feedback',{'file':first,'rating':v})[0] in (400,422) for v in (0,6,'x')),''))
+                R.check(g,'unknown clip rejected',lambda:(api('/feedback',{'file':'nope','rating':3})[0] in (400,404),''))
+                for i in range(10):api('/feedback',{'file':first,'rating':1+i%5})
+                summary=api('/feedback/summary')[1]
+                R.check(g,'repeated ratings count as one moment',lambda:(summary['ratings']==1 and not summary['fitted'],summary))
+                api('/feedback',{'file':first,'rating':1})
+                for i in range(1,8):api('/feedback',{'file':fixture(i),'rating':1 if i<4 else 5})
+                summary=api('/feedback/summary')[1]
+                R.check(g,'eight varied distinct moments fit preferences',lambda:(summary['ratings']==8 and summary['fitted'],summary))
+                R.check(g,'weights remain positive and normalized',lambda:(abs(sum(summary['weights'].values())-1)<.001 and min(summary['weights'].values())>0,summary['weights']))
+                (data/'feedbackrevision.json').write_text(json.dumps({'source':'fixture','settings':{'features':{'words':0,'motion':1},'revision_of':first},'result':{'status':'done'}}))
+                revised=api('/feedback',{'file':'feedbackrevision','rating':2})[1]
+                R.check(g,'revisions retain one training identity',lambda:(revised['ratings']==8,revised))
+            finally:
+                BASE=previous_base
+                proc.terminate()
+                try:proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:proc.kill();proc.wait(timeout=10)
 
 
 def g_creators():

@@ -981,27 +981,6 @@
  },
  {
   "group": "feedback",
-  "name": "rating 5 accepted",
-  "ok": true,
-  "evidence": "{'ratings': 3, 'weights': {'loud': 0.17, 'shout': 0.13, 'words': 0.2, 'motion': 0.17, 'flash': 0.08, 'strobe': 0.04, 'cuts': 0.03, 'llm': 0.18, 'chat': 0.14}, 'fitted': False, 'insight': []}",
-  "sec": 0.0
- },
- {
-  "group": "feedback",
-  "name": "rating 0 / 6 / text rejected",
-  "ok": true,
-  "evidence": "",
-  "sec": 0.0
- },
- {
-  "group": "feedback",
-  "name": "unknown clip rejected",
-  "ok": true,
-  "evidence": "",
-  "sec": 0.0
- },
- {
-  "group": "feedback",
   "name": "after 10 ratings the weights are fitted",
   "ok": true,
   "evidence": "{'ratings': 12, 'fitted': True, 'alpha': 0.2}",
@@ -2007,5 +1986,61 @@
   "ok": true,
   "evidence": "caption_source=YouTube captions for accurate and fast",
   "sec": 36
+ },
+ {
+  "group": "feedback",
+  "name": "private summary starts empty",
+  "ok": true,
+  "evidence": "",
+  "sec": 0.0
+ },
+ {
+  "group": "feedback",
+  "name": "rating 5 accepted",
+  "ok": true,
+  "evidence": "",
+  "sec": 0.0
+ },
+ {
+  "group": "feedback",
+  "name": "rating 0 / 6 / text rejected",
+  "ok": true,
+  "evidence": "",
+  "sec": 0.0
+ },
+ {
+  "group": "feedback",
+  "name": "unknown clip rejected",
+  "ok": true,
+  "evidence": "",
+  "sec": 0.0
+ },
+ {
+  "group": "feedback",
+  "name": "repeated ratings count as one moment",
+  "ok": true,
+  "evidence": "{'ratings': 1, 'weights': {'loud': 0.17, 'shout': 0.13, 'words': 0.2, 'motion': 0.17, 'flash': 0.08, 'strobe': 0.04, 'cuts': 0.03, 'llm': 0.18, 'chat': 0.14}, 'fitted': False, 'insight': [], 'message': 'Rate 7 more different moments to start adapting.'}",
+  "sec": 0.0
+ },
+ {
+  "group": "feedback",
+  "name": "eight varied distinct moments fit preferences",
+  "ok": true,
+  "evidence": "{'ratings': 8, 'weights': {'loud': 0.1428, 'shout': 0.1092, 'words': 0.2232, 'motion': 0.1301, 'flash': 0.0672, 'strobe': 0.0336, 'cuts': 0.0252, 'llm': 0.1512, 'chat': 0.1176}, 'fitted': True, 'insight': ['words: higher = better rated (+0.87)', 'motion: lower = better rated (-0.87)'], 'message': 'Preferences updated from different rated moments.', 'alpha': 0.13}",
+  "sec": 0.0
+ },
+ {
+  "group": "feedback",
+  "name": "weights remain positive and normalized",
+  "ok": true,
+  "evidence": "{'loud': 0.1428, 'shout': 0.1092, 'words': 0.2232, 'motion': 0.1301, 'flash': 0.0672, 'strobe': 0.0336, 'cuts': 0.0252, 'llm': 0.1512, 'chat': 0.1176}",
+  "sec": 0.0
+ },
+ {
+  "group": "feedback",
+  "name": "revisions retain one training identity",
+  "ok": true,
+  "evidence": "{'ratings': 8, 'weights': {'loud': 0.1434, 'shout': 0.1097, 'words': 0.2202, 'motion': 0.1302, 'flash': 0.0675, 'strobe': 0.0337, 'cuts': 0.0253, 'llm': 0.1518, 'chat': 0.1181}, 'fitted': True, 'insight': ['words: higher = better rated (+0.82)', 'motion: lower = better rated (-0.82)'], 'message': 'Preferences updated from different rated moments.', 'alpha': 0.13}",
+  "sec": 0.0
  }
 ]

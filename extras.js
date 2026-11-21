@@ -5,7 +5,7 @@
   const STYLE_KEYS = ['template', 'tpl_name', 'tpl_handle', 'bg_mode', 'bg_color', 'bg_color2', 'bg_image', 'bg_dim', 'bg_blur', 'padding', 'radius',
     'watermark_image', 'watermark_pos', 'watermark_size', 'watermark_opacity', 'credit', 'outro_text', 'outro_seconds',
     'music', 'music_volume', 'music_peak', 'music_riser', 'caption_anim',
-    'caption_font','caption_size','caption_color','caption_active','caption_outline','caption_max_words','hook_duration','hook_background'];
+    'caption_font','caption_size','caption_color','caption_active','caption_outline','caption_max_words','hook_duration','hook_background','hook_enabled','fade_inout','cam_contrast','cam_brightness','cam_saturation','cam_clarity'];
   const BRAND_KEYS=['caption_font','caption_size','caption_color','caption_active','caption_outline','caption_max_words'];
   const assets = { bg_image: '', watermark_image: '', music: '' };
 
@@ -35,7 +35,7 @@
     if (v.music) { o.music = v.music; o.music_volume = v.music_volume; o.music_peak = v.music_peak; o.music_riser = v.music_riser; }
     if (v.caption_anim && v.caption_anim !== 'highlight') o.caption_anim = v.caption_anim;
     for(const key of BRAND_KEYS){const value=$('brand-'+key)?.value;if(value)o[key]=['caption_size','caption_max_words'].includes(key)?Number(value):value;}
-    o.hook_duration=Number($('hook-duration')?.value||8);o.hook_background=$('hook-background')?.checked!==false;
+    o.hook_duration=Number($('hook-duration')?.value||8);o.hook_background=$('hook-background')?.checked!==false;o.hook_enabled=$('hook-enabled')?.checked!==false;o.fade_inout=!!$('fade-inout')?.checked;['contrast','brightness','saturation','clarity'].forEach(k=>{const el=$('cam-'+k);if(el)o['cam_'+k]=Number(el.value);});
     return o;
   }
   // every key, '' when off: used when editing saved clips so a switched-off option really turns off
@@ -64,6 +64,9 @@
     for(const key of BRAND_KEYS){if($('brand-'+key))$('brand-'+key).value=s[key]||'';}
     if($('hook-duration'))$('hook-duration').value=s.hook_duration||8;
     if($('hook-background'))$('hook-background').checked=s.hook_background!==false;
+    if($('hook-enabled'))$('hook-enabled').checked=s.hook_enabled!==false;
+    if($('fade-inout'))$('fade-inout').checked=!!s.fade_inout;
+    ['contrast','brightness','saturation','clarity'].forEach(k=>{const el=$('cam-'+k);if(el&&s['cam_'+k]!==undefined&&s['cam_'+k]!==null){el.value=s['cam_'+k];el.dispatchEvent(new Event('input'));}});
   }
 
   // ---- uploads (logo, wallpaper, music)
@@ -89,7 +92,7 @@
   if($('mode')){const panel=document.createElement('details');panel.className='caption-brand';panel.innerHTML='<summary>Focus the clips on a topic or campaign</summary><p class="muted">These rules use spoken words, not objects visible only on screen. A topic guides ranking. Required and excluded phrases are hard transcript filters; fewer clips may match.</p><label>Transcript focus<textarea id="focus-brief" rows="2" maxlength="800" placeholder="Funny misunderstandings, complete stories, useful editing tips…"></textarea></label><label>Must mention at least one phrase<input id="focus-include" placeholder="brand name, product name (comma-separated)"></label><label>Exclude passages mentioning<input id="focus-exclude" placeholder="sponsor, subscribe (comma-separated)"></label>';$('mode').closest('label').parentNode.append(panel);}
   const lang = $('language');
   if($('mode')){const label=document.createElement('label');label.textContent='Moment mix';const select=document.createElement('select');select.id='moment-profile';select.innerHTML='<option value="balanced">Balanced: action + dialogue + story</option><option value="action">Action / high energy</option><option value="dialogue">Dialogue, humour & insights</option>';label.append(select);$('mode').closest('label').after(label);}
-  if($('hook')){const duration=document.createElement('label');duration.textContent='Opening heading duration (seconds)';const input=document.createElement('input');input.id='hook-duration';input.type='number';input.min='2';input.max='60';input.value='8';duration.append(input);$('hook').closest('label').after(duration);const backing=document.createElement('label');backing.className='check';backing.innerHTML='<input id="hook-background" type="checkbox" checked> Black backing behind opening heading';duration.after(backing);const improve=document.createElement('button');improve.textContent='Improve opening heading';improve.onclick=async()=>{try{const selected=collectWords();if(!selected?.length)throw Error('Generate or import this clip subtitles first.');improve.disabled=true;status('Writing a grounded heading with the local model…');const result=await request('/hooks/suggest',{text:selected.map(w=>w.text).join(' ')});$('hook').value=result.hook;status('Heading ready. Review the wording, then apply or export.');}catch(error){status(error.message);}finally{improve.disabled=false;}};backing.after(improve);}
+  if($('hook')){const duration=document.createElement('label');duration.textContent='Opening heading duration (seconds)';const input=document.createElement('input');input.id='hook-duration';input.type='number';input.min='2';input.max='60';input.value='8';duration.append(input);$('hook').closest('label').after(duration);const backing=document.createElement('label');backing.className='check';backing.innerHTML='<input id="hook-background" type="checkbox" checked> Black backing behind opening heading';duration.after(backing);const improve=document.createElement('button');improve.textContent='Improve opening heading';improve.onclick=async()=>{try{const selected=collectWords();if(!selected?.length)throw Error('Generate or import this clip subtitles first.');improve.disabled=true;status('Writing a grounded heading with the local model…');const result=await request('/hooks/suggest',{text:selected.map(w=>w.text).join(' ')});$('hook').value=result.hook;status('Heading ready. Review the wording, then apply or export.');}catch(error){status(error.message);}finally{improve.disabled=false;}};backing.after(improve);const en=document.createElement('label');en.className='check';en.innerHTML='<input id="hook-enabled" type="checkbox" checked> Show opening heading on the clip';$('hook').closest('label').after(en);const fd=document.createElement('label');fd.className='check';fd.innerHTML='<input id="fade-inout" type="checkbox"> Fade in / out (0.3 s, picture and sound)';en.after(fd);}
   if(lang){
     const panel=document.createElement('details');panel.className='caption-brand';
     const summary=document.createElement('summary');summary.textContent='Custom caption look & saved profiles';panel.append(summary);

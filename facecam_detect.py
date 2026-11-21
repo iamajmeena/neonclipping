@@ -201,6 +201,14 @@ class Faces:
         return [] if out is None else [(float(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[14])) for r in out]
 
 
+MIN_LIVE = 0.35      # a channel logo, drawn avatar or still picture does not change between frames; a real webcam always does a little
+
+
+def is_live(calm):
+    """False for a picture that never changes (typical logo or avatar box), True for moving video."""
+    return calm >= MIN_LIVE
+
+
 def face_rate(frames, cand, faces):
     """Share of frames in which a face is found inside the candidate rectangle (candidate in small-frame pixels)."""
     sx, sy = BW / W, BH / H
@@ -249,6 +257,8 @@ def detect_from_frames(frames):
     faces = Faces()
     scored = []
     for c in cands:
+        if not is_live(c['calm']):
+            continue                    # static logo / avatar: not the streamer's camera
         rate = face_rate(frames, c, faces)
         c['faces'] = rate
         area = c['w'] * c['h'] / float(W * H)

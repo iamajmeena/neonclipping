@@ -10,6 +10,22 @@ NeonClipping turns long YouTube / Twitch / Kick videos (or your own MP4) into ve
 
 **Made by [Ajay K Meena](https://www.instagram.com/iamajmeena/)** (Director, DOP, colorist, DaVinci Resolve educator, Jaipur). If NeonClipping saves you time, please ⭐ star the repo and follow [@iamajmeena](https://www.instagram.com/iamajmeena/) on Instagram.
 
+**Clip an 85-minute stream in 97 seconds, 100% locally, with zero API cost.** (measured, see [How it finds good moments](#how-it-finds-good-moments))
+
+### NeonClipping compared with other clippers
+
+| | **NeonClipping** | OpusClip (cloud) | Docker-based self-hosted clippers (SupoClip, OpenShorts, Reelsaw) |
+|---|---|---|---|
+| Where it runs | Your PC, nothing uploaded | Their servers | Your machine or server |
+| Cost | Free, no account, no credits | Subscription / credits | Free (some need an LLM API key or Docker setup) |
+| Install | One `.bat` on Windows, `install.sh` on Mac/Linux, no Docker | None (web) | Docker |
+| YouTube + Twitch + Kick links | Yes | Yes | Mostly YouTube |
+| Very long streams | Audio-first (79 MB for 85 min); 24 h video: pick the part, never downloads all | Upload limits apply | Often limited by length or disk |
+| Gaming layouts (facecam + gameplay) | 11 layouts, automatic facecam finder | Limited | Varies |
+| Live stream clipping | Yes, chat-spike based, phone remote | No | Rarely |
+| Download quality | 1080p default, 4K option beside Get preview | n/a | Varies |
+| Captions | 5 styles, 52 languages, Hinglish, on/off, quiet-part aware | Templates | Varies |
+
 ![demo](docs/demo.gif)
 
 ![UI](docs/neonclipping-ui.jpg)
@@ -54,7 +70,7 @@ Every candidate moment is scored from several signals, then the best ones are ke
 | On-screen action | Fast motion (optical flow), explosion-like flashes, red/blue light flicker, scene cuts |
 | AI score | A small local LLM reads the transcript: emotion, punchline, payoff |
 
-**It learns from you.** Under every clip there are 5 stars. Your ratings stay on your computer (`data/feedback.jsonl`). After 8 ratings the weights of the signals above are re-fitted (ridge regression pulled toward the defaults, blended in gradually), so a gamer-shouting-heavy taste ranks shouting higher and a calm-explainer taste ranks it lower. Nothing is uploaded.
+**It learns from you.** Generated moments have five-star controls in results and My clips. Ratings stay on your computer (`data/feedback.jsonl`). After at least eight **different moments**, with a useful mix of stronger/weaker ratings and different measurements, the local ranking weights can adapt. Repeated clicks update that moment's latest rating; re-edited versions keep one training identity. The full rating history stays intact. This fits a small preference ranker, not the foundation model. Nothing is uploaded.
 
 ## Features
 
@@ -69,6 +85,7 @@ Every candidate moment is scored from several signals, then the best ones are ke
 - **Transcript explorer:** explicitly generate or import a full-source transcript, search phrases across cues, browse pages, and click the first/last word to export that passage. Cached transcripts are reused by Make clips and invalidated when the source changes.
 - **Trim a saved clip:** in *Edit saved clips*, change Start / End and press *Only this clip*; the clip is cut again from the saved video and the subtitles move with the cut (3 to 180 s, within the saved video).
 - **52 caption languages** in the Language menu, see Honest limits for caveats.
+- **Optional visual review:** an already-installed compatible Gemma4 image model describes three actual scene frames. Review them in the editor or enable visual review for automatic candidate refinement. It is off by default and can add CPU inference time. Sampled image descriptions can be uncertain and do not verify a complete game event. Saved evidence is reused during re-editing.
 - **Hinglish captions**: Hindi speech is written in English letters ("kya haal hai bhai") by default. Pick Hinglish / हिंदी / English explicitly if you like. Fast uses available source captions; Best Hindi explicitly uses local large-v3 recognition and can be slower on small GPUs. Missing source captions require local recognition.
 - **Make clips uses your own setup**: facecam preset or the boxes you draw in step 03.
 - Optical-flow motion + audio highlight ranking, frame-accurate NVENC export (falls back to x264).
@@ -263,3 +280,18 @@ Design ideas studied from open-source clippers: [PeakCut](https://github.com/haz
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## What changed on 2026-11-21
+
+- **Download quality next to Get preview.** 1080p is the default; choose 4K, 1440p or 720p right beside the button. The 1080p setting no longer falls back to YouTube's ready-made 720p mp4, and the progress line shows video/audio stream, MB, speed and time left.
+- **Very long videos (over 2 hours) are never downloaded whole.** A 24-hour stream is about 46 GB at 1080p. You pick the part (up to 2 hours, h:mm:ss) and only that part is downloaded.
+- **Opening heading on/off** (*Show opening heading on the clip*, on by default). Off means no heading text, no backing box and no local-model call.
+- **Fixes for reported install problems:** PyAV 19 (`metadata_errors`) shim and `av<19` pin, portable FFmpeg fallback and an on-screen warning when FFmpeg is missing, Windows installer uses Python 3.10 to 3.13 and installs the Visual C++ runtime when `ctranslate2.dll` cannot load, a live "working…" line while long audio is scanned.
+- **Report a problem** is now also in the sidebar and header.
+- On NVIDIA PCs the source is also decoded on the GPU (NVDEC), with automatic fallback to the CPU. Task Manager shows this under *Video Encode / Video Decode*, not under *3D*.
+
+## Updating
+
+NeonClipping now updates itself. When a new version is on GitHub, a green banner appears at the top of the page; press **Update now**, or leave it and it updates automatically after a short countdown when nothing is running. Your clips, settings and downloaded models are kept, one backup of the replaced files stays in `.update-backup/`, and the app restarts by itself.
+
+If you installed an older version, run `NeonClipping-Setup.bat` once more to get this feature. After that no re-install is needed. A git checkout is never touched by the updater (use `git pull`).

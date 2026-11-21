@@ -117,6 +117,11 @@ def environment():
         info['yt_dlp_checked'] = (DATA / '.ytdlp_checked').read_text(encoding='utf-8').strip()
     except OSError:
         info['yt_dlp_checked'] = 'never'
+    try:
+        import ytdl as _y
+        info['js_runtime'] = ','.join(_y.js_runtimes()) or 'none (YouTube may hide some qualities)'
+    except Exception:
+        info['js_runtime'] = 'unknown'
     info['browser_login_set'] = bool(os.environ.get('NEONCLIPPING_COOKIES_BROWSER') or (DATA / 'youtube_cookies.txt').exists()
                                      or (DATA / 'ytdl.json').exists())      # yes/no only, never the cookies
     return info

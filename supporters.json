@@ -1,0 +1,25 @@
+{
+  "note": "Names shown in the sidebar under SUPPORTERS. Shown masked (first letters only); replace with real names only with the person's OK. amount is optional text.",
+  "supporters": [
+    {
+      "name": "rvt•••",
+      "amount": "₹500"
+    },
+    {
+      "name": "mok•••",
+      "amount": "₹50"
+    },
+    {
+      "name": "sur•••",
+      "amount": "₹20"
+    },
+    {
+      "name": "ama•••",
+      "amount": "₹1"
+    },
+    {
+      "name": "sma•••",
+      "amount": "₹1"
+    }
+  ]
+}

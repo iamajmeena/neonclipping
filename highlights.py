@@ -60,8 +60,8 @@ def _motion(source, duration, report):
     return f, c
 
 def _audio(source):
-    cmd = ['ffmpeg', '-v', 'error', '-i', str(source), '-vn', '-ac', '1', '-ar', '8000', '-f', 's16le', 'pipe:1']
-    raw = subprocess.run(cmd, capture_output=True).stdout
+    cmd = ['ffmpeg', '-nostdin', '-v', 'error', '-i', str(source), '-vn', '-ac', '1', '-ar', '8000', '-f', 's16le', 'pipe:1']
+    raw = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, timeout=4 * 3600).stdout
     x = np.frombuffer(raw[:len(raw) // 2 * 2], np.int16).astype(np.float32) / 32768
     n = len(x) // 8000
     if n == 0: return np.zeros(0), np.zeros(0)

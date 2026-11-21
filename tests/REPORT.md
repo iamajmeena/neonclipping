@@ -1,8 +1,8 @@
 # NeonClipping test report
 
-Generated 2026-11-20 08:56 by tests/make_report.py from tests/report.json.
+Generated 2026-11-20 09:47 by tests/make_report.py from tests/report.json.
 
-**287 of 287 checks pass.**
+**292 of 292 checks pass.**
 
 ## Problems found by the tests and fixed
 
@@ -295,16 +295,21 @@ Generated 2026-11-20 08:56 by tests/make_report.py from tests/report.json.
 | PASS | detect live Twitch channel (any of 5 big ones) | ['kaicenat', 'xqc'] |
 | PASS | offline/nonexistent channel -> not live, no crash |  |
 
-## Star ratings and learning  (6/6)
+## Star ratings and learning  (11/11)
 
 | Result | Check | Evidence |
 |---|---|---|
 | PASS | summary readable | {'ratings': 2, 'weights': {'loud': 0.17, 'shout': 0.13, 'words': 0.2, 'motion': 0.17, 'flash': 0.08, 'strobe': 0.04, 'cuts': 0.03, 'llm': 0. |
-| PASS | rating 5 accepted | {'ratings': 3, 'weights': {'loud': 0.17, 'shout': 0.13, 'words': 0.2, 'motion': 0.17, 'flash': 0.08, 'strobe': 0.04, 'cuts': 0.03, 'llm': 0. |
-| PASS | rating 0 / 6 / text rejected |  |
-| PASS | unknown clip rejected |  |
 | PASS | after 10 ratings the weights are fitted | {'ratings': 12, 'fitted': True, 'alpha': 0.2} |
 | PASS | weights sum to 1 and stay positive | 1.0 |
+| PASS | private summary starts empty |  |
+| PASS | rating 5 accepted |  |
+| PASS | rating 0 / 6 / text rejected |  |
+| PASS | unknown clip rejected |  |
+| PASS | repeated ratings count as one moment | {'ratings': 1, 'weights': {'loud': 0.17, 'shout': 0.13, 'words': 0.2, 'motion': 0.17, 'flash': 0.08, 'strobe': 0.04, 'cuts': 0.03, 'llm': 0. |
+| PASS | eight varied distinct moments fit preferences | {'ratings': 8, 'weights': {'loud': 0.1428, 'shout': 0.1092, 'words': 0.2232, 'motion': 0.1301, 'flash': 0.0672, 'strobe': 0.0336, 'cuts': 0. |
+| PASS | weights remain positive and normalized | {'loud': 0.1428, 'shout': 0.1092, 'words': 0.2232, 'motion': 0.1301, 'flash': 0.0672, 'strobe': 0.0336, 'cuts': 0.0252, 'llm': 0.1512, 'chat |
+| PASS | revisions retain one training identity | {'ratings': 8, 'weights': {'loud': 0.1434, 'shout': 0.1097, 'words': 0.2202, 'motion': 0.1302, 'flash': 0.0675, 'strobe': 0.0337, 'cuts': 0. |
 
 ## Browser UI  (19/19)
 
