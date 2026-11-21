@@ -294,8 +294,16 @@
       } catch (e) { aiStatus('⚠ ' + e.message); } finally { $('ai-split').disabled = false; }
     };
     $('ai-read').onclick = async () => {
+      const txt = ($('ai-answers').value || '').trim();
+      if (!txt) {
+        aiStatus('⚠ Pehle upar box mein chatbot ka answer paste karein.');
+        $('ai-answers').focus();
+        return;
+      }
+      $('ai-read').disabled = true;
+      aiStatus('Reading moments…');
       try {
-        const r = await request('/ai/answers', { text: $('ai-answers').value, duration: aiInfo ? aiInfo.duration : null });
+        const r = await request('/ai/answers', { text: txt, duration: aiInfo ? aiInfo.duration : null });
         aiMoments = r.moments; $('ai-moments').replaceChildren();
         r.moments.forEach((m, i) => {
           const d = document.createElement('label'); d.className = 'queue-item';
@@ -311,6 +319,8 @@
         aiStatus('⚠ ' + e.message);
         $('ai-make').disabled = true;
         $('ai-make').title = "Paste chatbot answers in Step 2 and click 'Read the answers' first";
+      } finally {
+        $('ai-read').disabled = false;
       }
     };
     $('ai-make').onclick = () => {
