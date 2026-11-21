@@ -67,6 +67,8 @@ Every candidate moment is scored from several signals, then the best ones are ke
 - **Moment mix:** Balanced combines activity and transcript-led proposals; Action favours energy; Dialogue favours story, humour and insights. Final selection reduces overlapping and repetitive moments. Balanced/Dialogue prefer an already-installed Gemma 4 local judge; other local models remain a fallback. This changes curation rules and prompts, not foundation-model weights.
 - **Custom captions:** installed font family, size, text/active/outline colours, words per caption and local saved profiles. Import SRT/ASS/WebVTT or paste subtitle text, adjust word timings, split/merge and shift captions. Within-cue word timings from imported files are estimated. Download WebVTT alongside SRT.
 - **Transcript explorer:** explicitly generate or import a full-source transcript, search phrases across cues, browse pages, and click the first/last word to export that passage. Cached transcripts are reused by Make clips and invalidated when the source changes.
+- **Trim a saved clip:** in *Edit saved clips*, change Start / End and press *Only this clip*; the clip is cut again from the saved video and the subtitles move with the cut (3 to 180 s, within the saved video).
+- **52 caption languages** in the Language menu, see Honest limits for caveats.
 - **Hinglish captions**: Hindi speech is written in English letters ("kya haal hai bhai") by default. Pick Hinglish / हिंदी / English explicitly if you like. Fast uses available source captions; Best Hindi explicitly uses local large-v3 recognition and can be slower on small GPUs. Missing source captions require local recognition.
 - **Make clips uses your own setup**: facecam preset or the boxes you draw in step 03.
 - Optical-flow motion + audio highlight ranking, frame-accurate NVENC export (falls back to x264).
@@ -92,7 +94,7 @@ Run the portable regression tests with `python -m unittest discover -s tests -v`
 
 **Easiest (Windows):** download [`NeonClipping-Setup.bat`](https://github.com/iamajmeena/neonclipping/releases/latest/download/NeonClipping-Setup.bat) from the [website](https://iamajmeena.github.io/neonclipping/) or the Releases page and double-click it. It checks your PC, installs Python and FFmpeg if missing, installs NeonClipping into `%LOCALAPPDATA%\NeonClipping`, creates a Desktop shortcut and opens the app. Mac/Linux: `install.sh` (new, not yet tested on a real Mac). Or follow the steps below.
 
-Requirements: Python 3.10+, FFmpeg on PATH. Optional but recommended: [Ollama](https://ollama.com) with `ollama pull llama3.2:3b` for AI titles, hooks and scores (without it clips are picked by the audio/motion score), and an NVIDIA GPU for NVENC and faster-whisper.
+Requirements: Python 3.10 to 3.13 (the newest Python often has no wheels for the speech/vision packages yet; the Mac/Linux installer picks a supported one for you), FFmpeg on PATH. Optional but recommended: [Ollama](https://ollama.com) with `ollama pull llama3.2:3b` for AI titles, hooks and scores (without it clips are picked by the audio/motion score), and an NVIDIA GPU for NVENC and faster-whisper.
 
 ```bash
 git clone https://github.com/iamajmeena/neonclipping
@@ -112,6 +114,10 @@ Optional GPU speech model support (only used when a video has no YouTube caption
 ```
 
 Set `NEONCLIPPING_CPU=1` to force CPU. Set `NEONCLIPPING_PORT=9000` to use another port.
+
+**Mac / Linux / no NVIDIA GPU:** the video encoder is chosen by what works on your computer: NVIDIA NVENC, then Apple VideoToolbox, then the CPU encoder (x264). Force one with `NEONCLIPPING_ENCODER=nvenc|videotoolbox|x264`. The speech model skips the GPU attempt when no CUDA GPU exists and runs on the CPU. `install.sh` and the unit tests run automatically on macOS, Ubuntu and Windows machines for every change (see the *Actions* tab); the maintainer has not yet tried the Mac installer on his own Mac, so tell us if it misbehaves (Report a problem).
+
+**Settings (environment variables):** `NEONCLIPPING_LIVE_AUTO_HOURS` (default 3) and `NEONCLIPPING_MIN_FREE_GB` (default 8) control the unattended creator-watch live sessions; a manual Live clipping session has no time cap and no disk guard.
 
 ## How it is built
 
@@ -187,6 +193,52 @@ The **Find my facecam** chip (or "find it automatically when I press Make clips"
 
 **AI parts** (below step 01): paste a YouTube link, NeonClipping splits the video's captions into ~25-minute parts and gives a copy-ready prompt per part. Paste each into any free chatbot, paste all answers back (JSON or lines like `12:30-13:10 title`), tick the moments and press Make clips: only those sections are downloaded and rendered. A chatbot given a 9-hour transcript in one go only reads the start; small parts fix that. Nothing is sent anywhere by NeonClipping; the chatbot step is manual.
 
+## Report a problem (English + Hindi)
+
+The **Report a problem · समस्या बताएँ** button (bottom-right) explains, in English and Hindi, three ways to tell the maintainer what broke. You choose how much to share and **nothing is sent unless you press a button**:
+
+| Option | What happens | Who sees it |
+|---|---|---|
+| **1 · GitHub issue (safest)** | Opens a pre-filled issue; you read it and press Submit yourself | Public on GitHub |
+| **2 · Download diagnostics** | Saves a text file; you send it yourself (GitHub, Instagram DM, WhatsApp) | Only who you send it to |
+| **3 · Send directly (optional)** | After you tick a box next to the exact text shown, posts it to the maintainer's collector | The maintainer only |
+
+What the text contains: tool versions (app, Python, Windows, ffmpeg, yt-dlp), the recent error messages with a short label such as `youtube-bot-check`, and your note if you wrote one. Video links (only the site name stays), user names in paths, e-mails, IP addresses and token-like values are removed before anything is shown, logged or shared. No videos, transcripts, cookies or browser data are ever read. Failed jobs are also written to `data/errors.log` on your own computer (redacted, trimmed automatically); that file never leaves the computer unless you share it.
+
+Option 3 stays off ("not set up") until a collector URL is configured; see [`tools/report-worker`](tools/report-worker/README.md). Code: [`report.py`](report.py), [`report.js`](report.js). Issue form: `.github/ISSUE_TEMPLATE/problem.yml`.
+
+## Source quality (1080p default, 4K optional)
+
+Under **Resolution** there is a **Source quality** menu: how sharp the video is that gets downloaded from YouTube. It used to be fixed at 720p, which made 1080p/4K exports upscaled and soft. Now:
+
+| Choice | What you get | Measured (20 s section of a 4K video) |
+|---|---|---|
+| **1080p (default)** | H.264 1920x1080 | 10 MB |
+| 4K | AV1/VP9 3840x2160, much larger, slower to decode | 70 MB |
+| 1440p | in between | |
+| 720p | fastest, smallest | 6 MB |
+
+If a video only exists at 720p on YouTube (some new uploads and low-quality sources), you get 720p whatever you choose. **Resolution** (export size) is a separate setting: for a sharp 4K export pick Source quality 4K and Resolution 2160. Imports are cached per link and re-downloaded if you later ask for a higher quality.
+
+## "Sign in to confirm you're not a bot" (YouTube bot check)
+
+Some connections get this from YouTube: shared or mobile-data internet, VPNs, office/hostel Wi-Fi, or an old downloader. NeonClipping handles it for you in this order, with no setup:
+
+1. **Keeps yt-dlp fresh.** Once a day at start-up it upgrades `yt-dlp[default]` (offline-safe). Turn off with `NEONCLIPPING_NO_AUTOUPDATE=1`.
+2. **Retries in other YouTube modes** (TV, Safari, iOS, mobile web clients) instead of failing on the first block.
+3. **Shows one short message** with the fixes below instead of a long English error.
+
+If YouTube still blocks you, pick one:
+
+| Fix | How |
+|---|---|
+| **Upload the MP4** | Use **Upload video** next to the link box. Always works. |
+| **Use your browser login** | Sign in to YouTube in Chrome (or Edge / Firefox / Brave), then start NeonClipping with `NEONCLIPPING_COOKIES_BROWSER=chrome`. PowerShell: `$env:NEONCLIPPING_COOKIES_BROWSER='chrome'; ./run.ps1`. Close the browser first if Windows says the cookie file is locked. |
+| **Use a cookies file** | Export `cookies.txt` from your browser and save it as `data/youtube_cookies.txt` (or point `NEONCLIPPING_COOKIES_FILE` at it). It stays on your computer. |
+| **Change network** | Home Wi-Fi instead of mobile data; turn the VPN off. |
+
+Cookies are only read when you set one of the options above; NeonClipping never reads your browser by itself. Use a throw-away Google account if you do not want your main one attached to automated downloads. Python 3.10 is deprecated by yt-dlp: use Python 3.11+ so updates keep arriving. Everything YouTube-related goes through [`ytdl.py`](ytdl.py).
+
 ## Honest limits
 
 - Highlight picking is a heuristic plus a small local LLM. It finds loud, energetic, quotable moments, not guaranteed "viral" ones. Review before posting.
@@ -195,6 +247,9 @@ The **Find my facecam** chip (or "find it automatically when I press Make clips"
 - Without YouTube captions (Twitch VODs, uploaded files) a speech model must transcribe each candidate, which is slow on CPU.
 - Auto-caption accuracy follows the source: YouTube's auto captions are imperfect, especially Hinglish.
 - Deep mode was verified on a short video only; on multi-hour videos it downloads the whole file first and is slow by design.
+- **Live clipping:** one live session at a time, and the computer must stay awake and online while it records. Unattended creator-watch sessions stop after 3 hours or when less than 8 GB of disk is free (both configurable above); a manual session does not.
+- **No auto-posting or scheduling.** NeonClipping exports the MP4 and SRT to your computer and stops there on purpose: posting to Instagram/YouTube/TikTok needs your accounts and approved API access, which would break "no account, nothing leaves your computer". Upload with the platform's own app or a scheduler you trust.
+- **Caption languages:** Hinglish, Hindi, English and 50 more (Whisper). Accuracy is best for widely spoken languages. Captions are drawn with fonts installed on your computer, so scripts without a font may show empty boxes, and right-to-left languages (Arabic, Persian, Hebrew, Urdu) have basic support only. When YouTube provides captions in the spoken language they are used instead of the speech model.
 - Facecam presets are starting points, not detection: if you pick Bottom-right but the cam is bottom-left, the top half of the clip will show the wrong area. Pick the right corner or draw your own boxes.
 
 ## Support

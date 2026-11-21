@@ -178,9 +178,9 @@ def attach(app):
         except (TypeError, ValueError):
             raise HTTPException(400, 'Check the numbers for parts, moments per part and clip length.')
         try:
-            import yt_dlp
+            import ytdl
             from captions_yt import from_info
-            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True, 'socket_timeout': 20}) as y:
+            with ytdl.YDL({'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True, 'socket_timeout': 20}) as y:
                 info = y.extract_info(url, download=False)
         except Exception as e:
             raise HTTPException(400, 'Could not read that video: ' + str(e)[:160])
