@@ -1,17 +1,29 @@
 """Readable opening headings on bright gameplay, blur and facecam layouts."""
 import math
-KEYS=('hook_duration','hook_background')
+KEYS=('hook_enabled','hook_duration','hook_background')
 def settings(body):
-    value=body.get('hook_duration',8);duration=float(8 if value in (None,'') else value)
-    if not math.isfinite(duration) or not 2<=duration<=60:raise ValueError('Hook duration must be 2–60 seconds.')
+    raw_enabled=body.get('hook_enabled',False)
+    if isinstance(raw_enabled,str):
+        enabled=raw_enabled.lower() not in ('false','0','no','off','')
+    else:
+        enabled=bool(raw_enabled)
+    value=body.get('hook_duration',8)
+    duration=float(8 if value in (None,'') else value)
+    if not math.isfinite(duration) or duration<0 or duration>60:
+        raise ValueError('Hook duration must be 0–60 seconds.')
     background=body.get('hook_background',True)
-    if not isinstance(background,bool):raise ValueError('Hook background must be on or off.')
-    return duration,background
+    if isinstance(background,str):
+        background=background.lower() not in ('false','0','no','off')
+    if not isinstance(background,bool):
+        raise ValueError('Hook background must be on or off.')
+    return enabled,duration,background
 
 def events(lines,width,height,y,scale,body):
     """ASS background + text, separate layers; no alteration of the source footage."""
+    enabled,duration,background=settings(body)
+    if not enabled or duration<=0 or not lines:
+        return []
     from captions import BS,stamp,safe
-    duration,background=settings(body)
     size=round((78 if len(lines)==1 else 72 if len(lines)==2 else 66)*scale)
     pad=max(8,round(26*scale));line_height=round(size*1.22)
     box_w=min(round(width*.94),round(max(len(line) for line in lines)*size*.67)+pad*2)

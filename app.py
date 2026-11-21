@@ -140,6 +140,8 @@ def export(b:dict):
    if plan:plan.data=DATA;plan.job=job;g2=plan.graph(graph,src,width,height,dur)
    placement=text_positions(layout,top,position,width,height);hook_y=placement['hook_y'];caption_pos=placement['caption_y'];hook_text=str(b.get('hook',''))
    if plan and plan.template!='none':caption_pos=plan.template_caption_y;hook_text=''
+   hook_enabled=bool(b.get('hook_enabled',False))
+   if not hook_enabled:hook_text=''
    ass,srt=write_captions(words,style,DATA,job,hook_text,caption_pos,hook_y,width,height,b.get('caption_anim') or 'highlight',b)
    if words:
     (DATA/(job+'.vtt')).write_text(subtitles.write_track(subtitles.parse_track((DATA/srt).read_text(encoding='utf-8'),allow_overlap=True),'vtt',allow_overlap=True),encoding='utf-8')
@@ -335,8 +337,9 @@ def make(b:dict):
     save(job,{'engine':engine,'stage':'Rendering clips','progress':.6,'candidates':len(found)})
    done=[];cam_use,game_use,cam_checked=cam,game,not b.get('cam_auto')
    uploader=str((info.get('channel') or info.get('uploader') or '')) if url else ''
+   hook_enabled=bool(b.get('hook_enabled',False))
    for i,c in enumerate(found):
-    if not moments and c.get('transcript'):
+    if hook_enabled and not moments and c.get('transcript'):
      try:
       import smart
       model=smart._model(profile!='action' or mode=='deep')
@@ -355,7 +358,8 @@ def make(b:dict):
       if fc.get('found'):cam_use,game_use=fc['cam'],fc['game']
      except Exception as e:save(job,{'facecam':{'found':False,'reason':'detection failed: '+str(e)[:80]}})
     lang=language or ('hinglish' if (video_lang.startswith('hi') or c.get('language')=='hi') else None)
-    body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.5 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
+    hook_val = (' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')) if hook_enabled else ''
+    body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.5 else .32),'captions':True,'caption_style':style,'language':language,'hook':hook_val,'hook_enabled':hook_enabled,
           'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review')}
     for k in styling.KEYS+brands.KEYS+hooks.KEYS:
      if b.get(k) not in (None,''):body[k]=b[k]
