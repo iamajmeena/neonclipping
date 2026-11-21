@@ -57,3 +57,8 @@ __pycache__/
 !.gitattributes
 !.github/workflows/
 !.github/workflows/*
+
+!sfx/
+!sfx/*.wav
+sfx/custom/*
+

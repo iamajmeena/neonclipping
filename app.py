@@ -18,6 +18,7 @@ from captions import transcribe, large_v3, write as write_captions, ANIMS, ascii
 import styling
 import brands
 import hooks
+import sfx
 import curation
 import facecam_detect
 ROOT=Path(__file__).resolve().parent
@@ -151,8 +152,11 @@ def export(b:dict):
    fc=g2+f';[base]ass={ass}[v]'
    af,amap=plan.audio(dur) if plan else (None,None)
    if af:fc+=';'+af
+   sfx_id=b.get('sfx')
+   sfx_inputs,sfx_fc,amap=sfx.mix_audio(ROOT,sfx_id,dur,b.get('sfx_time','hook'),b.get('sfx_volume',0.75),input_idx=1+len(plan.inputs if plan else []),base_audio=amap or '0:a')
+   if sfx_fc:fc+=';'+sfx_fc
    state[job].update(message='Rendering vertical clip with '+style+' captions' if words else 'Rendering vertical clip')
-   base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),'-filter_complex',fc,'-map','[v]','-map',amap or '0:a?','-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
+   base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),*sfx_inputs,'-filter_complex',fc,'-map','[v]','-map',amap or '0:a?','-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
    if fps:base+=['-r',str(fps),'-fps_mode','cfr']
    for encoder in encoders.h264(cq=20,x264_preset='fast',nv_preset='p5'):
     r=subprocess.run(base+encoder+['-pix_fmt','yuv420p',str(out)],capture_output=True,text=True,cwd=str(DATA))
@@ -364,7 +368,7 @@ def make(b:dict):
      except Exception as e:save(job,{'facecam':{'found':False,'reason':'detection failed: '+str(e)[:80]}})
     lang=language or ('hinglish' if (video_lang.startswith('hi') or c.get('language')=='hi') else None)
     body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.5 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
-          'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review'),'facecam_enhance':b.get('facecam_enhance','smart'),'filters':b.get('filters')}
+          'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review'),'facecam_enhance':b.get('facecam_enhance','smart'),'filters':b.get('filters'),'sfx':b.get('sfx','none'),'sfx_time':b.get('sfx_time','hook'),'sfx_volume':b.get('sfx_volume',0.75)}
     for k in styling.KEYS+brands.KEYS+hooks.KEYS:
      if b.get(k) not in (None,''):body[k]=b[k]
     if b.get('credit_auto') and uploader and not body.get('credit'):body['credit']='Clip: '+uploader[:40]
@@ -569,6 +573,7 @@ aiparts.attach(app)
 facecam_detect.attach(app,DATA)
 brands.attach(app,DATA)
 hooks.attach(app)
+sfx.attach(app, ROOT)
 import transcripts
 transcripts.attach(app,DATA,state,probe,transcribe)
 import vision
