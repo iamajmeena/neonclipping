@@ -7,7 +7,7 @@ from jobs import JobQueue
 
 class DurableQueue(unittest.TestCase):
     def setUp(self):
-        self.folder=tempfile.TemporaryDirectory();self.addCleanup(self.folder.cleanup)
+        self.folder=tempfile.TemporaryDirectory(ignore_cleanup_errors=True);self.addCleanup(self.folder.cleanup)
         self.path=Path(self.folder.name)/'jobs.sqlite3';self.state={};self.calls=[]
         def handler(payload):
             self.calls.append(payload);child='child'+str(len(self.calls));self.state[child]={'status':'done','value':payload['value']};return {'job':child}

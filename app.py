@@ -3,8 +3,12 @@ import json, subprocess, uuid, threading, shutil
 import sys
 import time
 import os
+import ytdl      # first: keeps yt-dlp fresh before it is imported, and handles YouTube's bot check
+import report    # local error log + "Report a problem"
+import encoders  # picks NVENC / VideoToolbox / x264 by what works on this computer
+import languages
 import yt_dlp
-from standalone import attach
+from standalone import attach, source_height, source_format, quality_label
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 import uvicorn
@@ -51,7 +55,7 @@ def media(id:str):
  return FileResponse(p,media_type='video/mp4')
 @app.get('/assets/{name}')
 def assets(name:str):
- if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js'):raise HTTPException(404)
+ if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js'):raise HTTPException(404)
  return FileResponse(ROOT/name)
 @app.get('/text/{id}/{kind}')
 def text_file(id:str,kind:str):
@@ -87,7 +91,7 @@ def caption_job(b:dict):
  id,src,m,start,end=source_range(b);job=uuid.uuid4().hex
  state[job]={'status':'running','message':'Starting local captions'}
  language=b.get('language') or None
- if language not in (None,'hi','en','hinglish'):raise HTTPException(400,'Choose Auto, Hinglish, Hindi or English.')
+ if not languages.valid(language):raise HTTPException(400,'Choose Auto, Hinglish or a language from the list.')
  def work():
   try:
    result=transcribe(src,start,end,DATA,lambda msg:state[job].update(message=msg),language)
@@ -150,7 +154,7 @@ def export(b:dict):
    state[job].update(message='Rendering vertical clip with '+style+' captions' if words else 'Rendering vertical clip')
    base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),'-filter_complex',fc,'-map','[v]','-map',amap or '0:a?','-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
    if fps:base+=['-r',str(fps),'-fps_mode','cfr']
-   for encoder in [['-c:v','h264_nvenc','-preset','p5','-cq','20'],['-c:v','libx264','-crf','20','-preset','fast']]:
+   for encoder in encoders.h264(cq=20,x264_preset='fast',nv_preset='p5'):
     r=subprocess.run(base+encoder+['-pix_fmt','yuv420p',str(out)],capture_output=True,text=True,cwd=str(DATA))
     if r.returncode==0:break
    if r.returncode:raise RuntimeError(r.stderr[-900:])
@@ -159,10 +163,12 @@ def export(b:dict):
    state[job]=finished
   except Exception as e:state[job]={'status':'error','error':str(e)}
  threading.Thread(target=work,daemon=True).start();return {'job':job}
+try:LIVE_AUTO_HOURS=max(.25,float(os.environ.get('NEONCLIPPING_LIVE_AUTO_HOURS','3')))   # unattended creator-watch sessions stop after this many hours
+except ValueError:LIVE_AUTO_HOURS=3.0
 PAD=4.0         # seconds fetched before a section: yt-dlp cuts on a keyframe, export trims exactly
 FAST_OVER=600   # seconds: longer videos go audio-first, short ones are downloaded whole
 def _yt(opts):
- return yt_dlp.YoutubeDL({'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':3,'fragment_retries':3,'concurrent_fragment_downloads':6,**opts})
+ return ytdl.YDL({'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':3,'fragment_retries':3,'concurrent_fragment_downloads':6,**opts})
 def _dur(p):
  r=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration','-of','csv=p=0',str(p)],capture_output=True,text=True,check=True);return float(r.stdout.strip())
 
@@ -217,12 +223,14 @@ def make(b:dict):
   if not isinstance(moments,list) or not 1<=len(moments)<=40 or not all(isinstance(m,dict) for m in moments):raise HTTPException(400,'Moments must be a list of 1 to 40 items with start and end.')
   count=min(24,len(moments))
  mode='deep' if b.get('mode')=='deep' else 'fast'
+ src_h=source_height(b.get('source_height'))     # how sharp the downloaded source is: 1080p by default, 4K or 720p on request
  profile=b.get('moment_profile','balanced')
  if profile not in curation.PROFILES:raise HTTPException(400,'Choose Balanced, Action or Dialogue moments.')
  try:focus_brief,include_phrases,exclude_phrases=curation.focus_settings(b)
  except ValueError as error:raise HTTPException(400,str(error))
  acc='best' if b.get('accurate')=='best' else 'fast'     # the turbo/"accurate" local model was removed: its captions were worse than YouTube's. Only Best Hindi (large-v3) uses a local model on purpose.
  layout=b.get('layout','blur');style=b.get('caption_style','gta');language=b.get('language') or None
+ if not languages.valid(language):raise HTTPException(400,'Choose Auto, Hinglish or a language from the list.')
  from translit import to_hinglish
  top_h=b.get('top');cam=b.get('cam') or {'x':0,'y':0,'w':.25,'h':.3};game=b.get('game') or {'x':.25,'y':0,'w':.75,'h':1}
  job=uuid.uuid4().hex;save(job,{'id':job,'status':'running','stage':'Starting','progress':0,'clips':[],'source':{'url':url}})
@@ -319,13 +327,13 @@ def make(b:dict):
     from yt_dlp.utils import download_range_func
     def section(i,c):
      name=uuid.uuid4().hex
-     with _yt({'format':'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/bv*[height<=720]+ba/b[height<=720]','merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
+     with _yt({'format':source_format(src_h),'merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
                'download_ranges':download_range_func(None,[(max(0,c['start']-PAD),c['end']+1)])}) as y:y.download([url])
      return name
     pool=ThreadPoolExecutor(max_workers=3);sections=[pool.submit(section,i,c) for i,c in enumerate(found)]
    else:
     if url:
-     save(job,{'stage':'Downloading source','progress':.02});sid,p=app.neon['download'](url,job)
+     save(job,{'stage':'Downloading source ('+quality_label(src_h)+')','progress':.02});sid,p=app.neon['download'](url,job,src_h)
     else:sid,p=src0.stem,src0
     meta=probe(p);duration=meta['duration'];save(job,{'source_id':sid,'meta':meta,'stage':'Finding moments','progress':.1})
     found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,lambda f,m:save(job,{'stage':m,'progress':.1+.5*f}),language,DATA,min_len,True,yt_words,mode=='deep',W,False,profile,focus_brief,include_phrases,exclude_phrases)
@@ -389,7 +397,7 @@ def live_render(sess,start,dur,why,chat_feature):
  o=sess.opts;name=uuid.uuid4().hex;out=DATA/(name+'.mp4');T={};_t=time.time()
  def lap(k):
   nonlocal _t;T[k]=round(time.time()-_t,1);_t=time.time()
- for enc in (['-c:v','h264_nvenc','-preset','p4','-cq','21'],['-c:v','libx264','-preset','veryfast','-crf','21']):
+ for enc in encoders.h264(cq=21,x264_preset='veryfast',nv_preset='p4'):
   r=subprocess.run(['ffmpeg','-y','-v','error','-ss',f'{start:.2f}','-i',str(sess.rec),'-t',f'{dur:.2f}',*enc,'-c:a','aac','-b:a','160k',str(out)],capture_output=True,text=True)
   if r.returncode==0 and out.exists() and out.stat().st_size>10000:break
  else:raise RuntimeError('Could not cut the clip from the recording: '+r.stderr[-150:])
@@ -440,7 +448,7 @@ def start_live(target,opts,creator=None,before=24,after=14):
  for s_ in LIVE.values():
   if s_.state['status'] in ('starting','recording'):raise RuntimeError('A live session is already running. Stop it first.')
  sess=live_session.LiveSession(target,DATA,live_render,before,after)
- sess.creator=creator;sess.auto=bool(creator);sess.max_seconds=3*3600 if creator else None
+ sess.creator=creator;sess.auto=bool(creator);sess.max_seconds=LIVE_AUTO_HOURS*3600 if creator else None
  sess.opts={'layout':opts.get('layout','blur'),'caption_style':opts.get('caption_style','gta'),'language':opts.get('language') or None,
             'cam':opts.get('cam') or {'x':0,'y':0,'w':.25,'h':.3},'game':opts.get('game') or {'x':.25,'y':0,'w':.75,'h':1},
             'aspect':opts.get('aspect','vertical'),'resolution':opts.get('resolution',1080),'fps':opts.get('fps',0),'top':opts.get('top') if isinstance(opts.get('top'),(int,float)) else .32,'creator':creator,
@@ -519,9 +527,27 @@ def feedback_summary():
 @app.get('/make/{job}')
 def make_status(job:str):
  if job not in state:raise HTTPException(404,'Job unavailable after restart. Please retry.')
- return state[job]
+ return report.note_job_error(state[job])
 @app.get('/status/{id}')
-def status(id:str):return state.get(id,{'status':'error','error':'Server restarted. Paste the link again to retry.'})
+def status(id:str):return report.note_job_error(state.get(id,{'status':'error','error':'Server restarted. Paste the link again to retry.'}))
+
+# ---- Report a problem (all user-triggered; see report.py)
+@app.get('/report/info')
+def report_info(note:str=''):
+ return {'diagnostics':report.diagnostics(note),'issue_url':report.issue_url(note),'can_send':bool(report.report_url())}
+@app.get('/report/download')
+def report_download(note:str=''):
+ from fastapi.responses import PlainTextResponse
+ return PlainTextResponse(report.diagnostics(note,errors=40),headers={'Content-Disposition':'attachment; filename="neonclipping-diagnostics.txt"'})
+@app.post('/report/send')
+def report_send(b:dict):
+ if b.get('consent') is not True:raise HTTPException(400,'Tick the box to allow sending first.')
+ ok,message=report.send(str(b.get('note') or '')[:600])
+ return {'ok':ok,'message':message}
+@app.post('/report/log')
+def report_log(b:dict):
+ """The page reports errors it caught itself (a request that failed)."""
+ report.log_error(str(b.get('stage') or 'page')[:80],str(b.get('error') or '')[:700]);return {'ok':True}
 @app.get('/runtime')
 def runtime():
  return {'active':[{'id':job,'status':row.get('status'),'stage':row.get('stage') or row.get('message','')} for job,row in list(state.items()) if row.get('status') in ('running','queued','starting','recording')]}

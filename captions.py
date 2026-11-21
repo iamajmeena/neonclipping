@@ -36,7 +36,10 @@ def _load(WhisperModel,spec,data):
             free=int(subprocess.run(['nvidia-smi','--query-gpu=memory.free','--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=5).stdout.split()[0])
         except Exception:free=0
         big=free<3400
-    if os.environ.get('NEONCLIPPING_CPU')!='1' and not big:
+    try:                          # no NVIDIA/CUDA here (a Mac, a laptop without a GPU): skip the doomed GPU attempt
+        import ctranslate2;has_cuda=ctranslate2.get_cuda_device_count()>0
+    except Exception:has_cuda=True   # cannot tell: keep the old behaviour (try the GPU, fall back to CPU)
+    if os.environ.get('NEONCLIPPING_CPU')!='1' and not big and has_cuda:
         try:
             m=WhisperModel(spec,device='cuda',compute_type='int8_float16',download_root=str(data/'models'))
             list(m.transcribe(__import__('numpy').zeros(16000,dtype='float32'))[0])   # prove cuDNN/cuBLAS really load

@@ -5,6 +5,7 @@ Pattern used by the live clippers (heistclips, Claude Clipper, stream-clipper): 
 Chat is read anonymously (Twitch IRC, no login; YouTube Live via pytchat). Recording uses Streamlink.
 """
 import collections
+import os
 import re
 import shutil
 import socket
@@ -22,7 +23,8 @@ SIGMA = 2.5        # spike = mean + SIGMA * stdev ...
 RATIO = 2.5        # ... and at least RATIO x the baseline mean
 MIN_MSGS = 8       # ... and at least this many messages in the bucket
 COOLDOWN = 60      # seconds between two automatic clips
-MIN_FREE_GB = 8    # an unattended (auto) session stops when the disk has less free space than this
+try:MIN_FREE_GB = float(os.environ.get('NEONCLIPPING_MIN_FREE_GB', '8'))   # an unattended (auto) session stops below this much free disk space
+except ValueError:MIN_FREE_GB = 8.0
 
 
 def parse_target(text):
@@ -168,8 +170,8 @@ class LiveSession:
                 import json as _json
                 title = (_json.loads(r.stdout.decode('utf-8', 'replace') or '{}').get('metadata') or {}).get('title') or ''   # utf-8, not the Windows code page
             else:
-                import yt_dlp
-                with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True, 'socket_timeout': 20}) as y:
+                import ytdl
+                with ytdl.YDL({'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True, 'socket_timeout': 20}) as y:
                     title = y.extract_info(self.url, download=False).get('title') or ''
             self._set(title=clean_title(title))
         except Exception:

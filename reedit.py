@@ -15,6 +15,17 @@ CHANGE_KEYS = CHANGE_KEYS | set(STYLE_KEYS)
 CHANGE_KEYS = CHANGE_KEYS | set(BRAND_KEYS)
 CHANGE_KEYS = CHANGE_KEYS | set(HOOK_KEYS)
 
+def trim_words(words, shift, length):
+    """Move subtitle word times for a clip that now starts `shift` seconds later (negative = earlier) and lasts `length` seconds.
+    Words that fall outside the new clip are dropped; words cut by an edge are shortened. Times are relative to the clip start."""
+    out=[]
+    for w in words or []:
+        a=float(w['start'])-shift;z=float(w['end'])-shift
+        if z<=0.02 or a>=length-0.02:continue
+        a=max(0.0,a);z=min(length,z)
+        if z-a>=0.02:out.append({**w,'start':round(a,3),'end':round(z,3)})
+    return out
+
 def latest_file(data, file):
     """If a clip was re-edited, its newer version is the one to work on (stale cards still point at the old file)."""
     seen=set()
@@ -133,6 +144,13 @@ def attach(app,data,state,probe,export,save):
         if not isinstance(files,list) or not files or len(files)>100 or any(not isinstance(x,str) for x in files):
             raise HTTPException(400,'Select between 1 and 100 saved clips.')
         files=list(dict.fromkeys(files));prepared=[]
+        trim=body.get('trim')       # {'start','end'} in seconds of the saved video: cut the clip shorter (or a little longer)
+        if trim is not None:
+            try:trim_start=float(trim['start']);trim_end=float(trim['end'])
+            except (KeyError,TypeError,ValueError):raise HTTPException(400,'Trim needs a start and an end in seconds.')
+            if len(files)!=1:raise HTTPException(400,'Trim works on one clip at a time. Use "Only this clip".')
+            if not (math.isfinite(trim_start) and math.isfinite(trim_end)) or trim_start<0 or not 3<=trim_end-trim_start<=180:
+                raise HTTPException(400,'A clip must be between 3 and 180 seconds long.')
         for file in files:
             record=read_record(data,file);settings=dict(record['settings'])
             settings.update(changes)
@@ -149,6 +167,11 @@ def attach(app,data,state,probe,export,save):
             if not source.isalnum() or not (data/(source+'.mp4')).exists():
                 raise HTTPException(409,'A saved source is missing; no clips were changed.')
             settings['id']=source
+            if trim is not None:
+                have=probe(data/(source+'.mp4'))['duration']
+                if trim_end>have+.05:raise HTTPException(400,f'The saved video is only {have:.1f}s long here, so the end cannot be later than that.')
+                settings['words']=trim_words(settings['words'],trim_start-float(settings['start']),trim_end-trim_start)
+                settings['start']=trim_start;settings['end']=trim_end
             # Validate all inputs synchronously before scheduling any work.
             from layouts import geometry, output_settings
             try:

@@ -2,7 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import io,json,subprocess,urllib.request
-import yt_dlp
+import ytdl
 from PIL import Image
 
 def prepare(url,job,data,probe,publish):
@@ -26,7 +26,7 @@ def prepare(url,job,data,probe,publish):
             subprocess.run(['ffmpeg','-y','-v','error','-ss',str(t),'-i',str(cached),'-frames:v','1','-vf','scale=960:-2',str(out)],capture_output=True,check=True,timeout=25)
             ready(out,t,meta,'cached source frame')
         return
-    with yt_dlp.YoutubeDL({'quiet':True,'no_warnings':True,'skip_download':True,'socket_timeout':12,'retries':1}) as y:
+    with ytdl.YDL({'quiet':True,'no_warnings':True,'skip_download':True,'socket_timeout':12,'retries':1}) as y:
         info=y.extract_info(url,download=False)
     duration=float(info.get('duration') or 0)
     if not duration:raise RuntimeError('Replay duration unavailable. Wait for download or upload an MP4.')

@@ -6,8 +6,23 @@ import threading
 import shutil
 import time
 import subprocess
+import ytdl
 import yt_dlp
 from fastapi import HTTPException
+
+SOURCE_HEIGHTS=(720,1080,1440,2160)
+DEFAULT_SOURCE_HEIGHT=1080
+def source_height(value):
+    """Validated source download cap. Anything unknown falls back to 1080p."""
+    try:h=int(value)
+    except (TypeError,ValueError):return DEFAULT_SOURCE_HEIGHT
+    return h if h in SOURCE_HEIGHTS else DEFAULT_SOURCE_HEIGHT
+def source_format(h):
+    """yt-dlp format for a source up to h pixels tall. YouTube serves H.264 only up to 1080p; above that it is VP9/AV1."""
+    h=source_height(h)
+    if h>1080:return f'bv*[height<={h}]+ba/b[height<={h}]/b'
+    return f'bv*[height<={h}][vcodec^=avc1]+ba[ext=m4a]/b[height<={h}][ext=mp4]/bv*[height<={h}]+ba/b[height<={h}]/b'
+def quality_label(h):return '4K' if h>=2160 else f'{h}p'
 from highlights import rank
 import smart
 from previews import prepare
@@ -37,11 +52,13 @@ def attach(app,DATA,state,probe):
         p=DATA/(id+'.mp4')
         if not p.exists():raise HTTPException(404,'Source video is unavailable.')
         return p
-    def download(url,job):
-        # Reuse only this app's own import cache. Never read another app's data.
+    def download(url,job,height=DEFAULT_SOURCE_HEIGHT):
+        height=source_height(height)
+        # Reuse only this app's own import cache, and only if it was fetched at this quality or better (old caches were 720p).
         for f in DATA.glob('*.request.json'):
             try:
-                if json.loads(f.read_text()).get('url')==url:
+                rec=json.loads(f.read_text())
+                if rec.get('url')==url and rec.get('height',720)>=height:
                     cached=DATA/(f.name.split('.')[0]+'.mp4')
                     if cached.exists():probe(cached);return cached.stem,cached
             except (OSError,ValueError,subprocess.SubprocessError):pass
@@ -50,21 +67,25 @@ def attach(app,DATA,state,probe):
         def progress(event):
             if event.get('status')=='downloading':
                 got=event.get('downloaded_bytes',0);total=event.get('total_bytes') or event.get('total_bytes_estimate') or 0
-                msg=f'Downloading source: {got/1048576:.1f} MB'+(f' / {total/1048576:.1f} MB' if total else '')
+                msg=f'Downloading {quality_label(height)}: {got/1048576:.1f} MB'+(f' / {total/1048576:.1f} MB' if total else '')
                 state[job].update(message=msg,stage=msg,progress=min(.3,got/total*.3) if total else .1)
             elif event.get('status')=='finished':state[job].update(message='Merging source video',stage='Merging source video')
-        options={'noplaylist':True,'format':'best[height<=1080][ext=mp4]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]/best[height<=720]',
+        options={'noplaylist':True,'format':source_format(height),
                  'outtmpl':str(directory/'source.%(ext)s'),'merge_output_format':'mp4','socket_timeout':15,'retries':2,'fragment_retries':2,
                  'extractor_retries':1,'progress_hooks':[progress],'quiet':True,'no_warnings':True}
-        with yt_dlp.YoutubeDL(options) as downloader:downloader.download([url])
+        with ytdl.YDL(options) as downloader:downloader.download([url])
         src=next((p for p in directory.iterdir() if p.suffix in ('.mp4','.mkv','.webm')),None)
         if src is None:raise RuntimeError('Download produced no playable file. Upload the original MP4 instead.')
         if src.suffix=='.mp4':shutil.move(str(src),str(target))
         else:
-            result=subprocess.run(['ffmpeg','-y','-v','error','-i',str(src),'-c:v','libx264','-preset','fast','-crf','22','-c:a','aac','-movflags','+faststart',str(target)],capture_output=True,text=True,timeout=3600)
-            if result.returncode:raise RuntimeError(result.stderr[-500:])
+            # VP9/AV1 (4K) usually arrives as mkv/webm: remux without re-encoding first (fast, lossless); re-encode only if that fails.
+            result=subprocess.run(['ffmpeg','-y','-v','error','-i',str(src),'-c','copy','-movflags','+faststart',str(target)],capture_output=True,text=True,timeout=3600)
+            if result.returncode:
+                target.unlink(missing_ok=True)
+                result=subprocess.run(['ffmpeg','-y','-v','error','-i',str(src),'-c:v','libx264','-preset','fast','-crf','22','-c:a','aac','-movflags','+faststart',str(target)],capture_output=True,text=True,timeout=3600)
+                if result.returncode:raise RuntimeError(result.stderr[-500:])
         probe(target)
-        (DATA/(job+'.request.json')).write_text(json.dumps({'url':url}),encoding='utf-8')
+        (DATA/(job+'.request.json')).write_text(json.dumps({'url':url,'height':height}),encoding='utf-8')
         return job,target
 
     def new_source(body):

@@ -14,7 +14,7 @@ PHONE_ROUTES = ('/live-active', '/library', '/creators')
 class PhoneGate(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.TemporaryDirectory()
+        cls.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         os.environ['NEONCLIPPING_DATA_DIR'] = cls.tmp.name
         os.environ['NEONCLIPPING_LAN'] = '1'
         import importlib
@@ -97,7 +97,7 @@ class PhoneGate(unittest.TestCase):
 class PhoneOff(unittest.TestCase):
     def test_everything_is_closed_for_other_machines_when_lan_mode_is_off(self):
         os.environ.pop('NEONCLIPPING_LAN', None)
-        with tempfile.TemporaryDirectory() as d:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             os.environ['NEONCLIPPING_DATA_DIR'] = d
             import importlib
             import app as A
