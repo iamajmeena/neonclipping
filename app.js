@@ -682,3 +682,96 @@ fetch('/healthz').then(r=>r.json()).then(h=>{if(h&&h.ffmpeg===false){const m='FF
 function camFilter(){const g=k=>Number(document.getElementById('cam-'+k)?.value);const c=g('contrast')||1,b=g('brightness')||0,s=isNaN(g('saturation'))?1:g('saturation'),k=g('clarity')||0;return `contrast(${c}) brightness(${1+b}) saturate(${s})`+(k>0.05?` contrast(${1+k*0.12})`:'');}
 ['contrast','brightness','saturation','clarity'].forEach(k=>{const el=document.getElementById('cam-'+k);if(!el)return;const out=document.getElementById('cam-'+k+'-o');const show=()=>{if(out)out.textContent=Number(el.value).toFixed(2);};el.addEventListener('input',()=>{show();if(typeof paint==='function')paint();});show();});
 const camReset=document.getElementById('cam-reset');if(camReset)camReset.onclick=()=>{const d={contrast:1,brightness:0,saturation:1,clarity:0};for(const k in d){const el=document.getElementById('cam-'+k);if(el){el.value=d[k];el.dispatchEvent(new Event('input'));}}};
+
+// Persistent Floating / Sliding Preview Window across the entire window
+function initFloatingPreview(){
+ const previewSide = $('preview-side');
+ const workspace = document.querySelector('.workspace');
+ if(!previewSide || !workspace) return;
+
+ const pinBtn = $('preview-pin-btn');
+ const minBtn = $('preview-min-btn');
+ let isPinned = localStorage.getItem('neonclipping_preview_pinned') === '1';
+ let isMin = false;
+
+ function applyPinState(){
+  if(isPinned){
+   previewSide.classList.add('floating');
+   if(pinBtn){
+    pinBtn.textContent = '✓ Pinned';
+    pinBtn.style.color = '#ff4ba5';
+    pinBtn.style.borderColor = '#ff4ba5';
+   }
+  } else {
+   if(pinBtn){
+    pinBtn.textContent = '📌 Float';
+    pinBtn.style.color = '';
+    pinBtn.style.borderColor = '';
+   }
+   checkScroll();
+  }
+ }
+
+ function checkScroll(){
+  if(isPinned) return;
+  const rect = workspace.getBoundingClientRect();
+  const outOfView = (rect.bottom < 140 || rect.top > window.innerHeight - 80);
+  if(outOfView){
+   previewSide.classList.add('floating');
+  } else {
+   previewSide.classList.remove('floating');
+  }
+ }
+
+ window.addEventListener('scroll', checkScroll, { passive: true });
+ window.addEventListener('resize', checkScroll, { passive: true });
+
+ pinBtn?.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  isPinned = !isPinned;
+  localStorage.setItem('neonclipping_preview_pinned', isPinned ? '1' : '0');
+  applyPinState();
+ });
+
+ minBtn?.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  isMin = !isMin;
+  previewSide.classList.toggle('minimized', isMin);
+  minBtn.textContent = isMin ? '🗖' : '🗕';
+ });
+
+ // Draggable floating preview handle
+ const handle = $('preview-drag-handle');
+ let isDragging = false, startX = 0, startY = 0, initialRight = 28, initialBottom = 24;
+
+ handle?.addEventListener('mousedown', (e)=>{
+  if(e.target === pinBtn || e.target === minBtn) return;
+  if(!previewSide.classList.contains('floating')) return;
+  isDragging = true;
+  startX = e.clientX;
+  startY = e.clientY;
+  const style = window.getComputedStyle(previewSide);
+  initialRight = parseInt(style.right) || 28;
+  initialBottom = parseInt(style.bottom) || 24;
+  handle.style.cursor = 'grabbing';
+  e.preventDefault();
+ });
+
+ window.addEventListener('mousemove', (e)=>{
+  if(!isDragging) return;
+  const dx = e.clientX - startX;
+  const dy = e.clientY - startY;
+  previewSide.style.right = Math.max(10, Math.min(window.innerWidth - 180, initialRight - dx)) + 'px';
+  previewSide.style.bottom = Math.max(10, Math.min(window.innerHeight - 150, initialBottom - dy)) + 'px';
+ });
+
+ window.addEventListener('mouseup', ()=>{
+  if(isDragging){
+   isDragging = false;
+   if(handle) handle.style.cursor = 'grab';
+  }
+ });
+
+ applyPinState();
+}
+initFloatingPreview();
