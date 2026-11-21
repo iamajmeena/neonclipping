@@ -20,6 +20,7 @@ import brands
 import hooks
 import sfx
 import brainrot
+import effects
 import curation
 import facecam_detect
 ROOT=Path(__file__).resolve().parent
@@ -168,7 +169,9 @@ def export(b:dict):
    if words:
     (DATA/(job+'.vtt')).write_text(subtitles.write_track(subtitles.parse_track((DATA/srt).read_text(encoding='utf-8'),allow_overlap=True),'vtt',allow_overlap=True),encoding='utf-8')
    if plan:styling.append_ass(DATA/ass,plan,dur)
-   fc=g2+f';[base]ass={ass}[v]'
+   eff_fc=effects.build_filtergraph(b.get('effects'),dur,width,height)
+   if eff_fc:fc=g2+f';[base]{eff_fc}[eff_base];[eff_base]ass={ass}[v]'
+   else:fc=g2+f';[base]ass={ass}[v]'
    af,amap=plan.audio(dur) if plan else (None,None)
    if af:fc+=';'+af
    if bg_has_audio and bg_vol > 0.0:
@@ -392,7 +395,7 @@ def make(b:dict):
      except Exception as e:save(job,{'facecam':{'found':False,'reason':'detection failed: '+str(e)[:80]}})
     lang=language or ('hinglish' if (video_lang.startswith('hi') or c.get('language')=='hi') else None)
     body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.7 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
-          'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review'),'facecam_enhance':b.get('facecam_enhance','smart'),'filters':b.get('filters'),'sfx':b.get('sfx','none'),'sfx_time':b.get('sfx_time','hook'),'sfx_volume':b.get('sfx_volume',0.75),'brainrot_bg':b.get('brainrot_bg','subway'),'brainrot_source':b.get('brainrot_source','game'),'brainrot_pos':b.get('brainrot_pos','bottom'),'brainrot_crop':b.get('brainrot_crop','center'),'brainrot_speed':b.get('brainrot_speed',1.0),'brainrot_volume':b.get('brainrot_volume',0.0)}
+          'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review'),'facecam_enhance':b.get('facecam_enhance','smart'),'filters':b.get('filters'),'sfx':b.get('sfx','none'),'sfx_time':b.get('sfx_time','hook'),'sfx_volume':b.get('sfx_volume',0.75),'brainrot_bg':b.get('brainrot_bg','subway'),'brainrot_source':b.get('brainrot_source','game'),'brainrot_pos':b.get('brainrot_pos','bottom'),'brainrot_crop':b.get('brainrot_crop','center'),'brainrot_speed':b.get('brainrot_speed',1.0),'brainrot_volume':b.get('brainrot_volume',0.0),'effects':b.get('effects')}
     for k in styling.KEYS+brands.KEYS+hooks.KEYS:
      if b.get(k) not in (None,''):body[k]=b[k]
     if b.get('credit_auto') and uploader and not body.get('credit'):body['credit']='Clip: '+uploader[:40]
