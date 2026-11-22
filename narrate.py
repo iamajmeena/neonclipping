@@ -7,6 +7,9 @@ CLI:
   python narrate.py --help
 
 Env: GEMINI_API_KEY (required), NEONCLIPPING_GEMINI_MODEL (optional), ELEVENLABS_API_KEY (optional, --tts elevenlabs).
+Captions come from the TTS word boundaries. This pipeline does not run faster-whisper.
+On a small ARM board (or with --low-power / NEONCLIPPING_LOW_POWER=1) shorts are 720x1280 @30fps
+and long-form is 1280x720, encoded with h264_v4l2m2m when it works, otherwise libx264 ultrafast.
 """
 import argparse, asyncio, base64, hashlib, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
@@ -37,14 +40,43 @@ def probe(path):
     return {'duration': float(d['format']['duration']), 'w': v.get('width'), 'h': v.get('height'),
             'fps': float(n) / float(den or 1), 'audio': any(s['codec_type'] == 'audio' for s in d['streams'])}
 
-def frames(src, start, end, step, width=512):
-    """[(t_relative, jpeg_bytes)] every `step` seconds between start and end."""
-    out = []; t = start
-    while t < end - .2:
-        jpg = subprocess.run(['ffmpeg', '-v', 'error', '-ss', f'{t:.2f}', '-i', str(src), '-frames:v', '1', '-vf', f'scale={width}:-2',
-                              '-q:v', '5', '-f', 'mjpeg', 'pipe:1'], capture_output=True).stdout
-        if jpg: out.append((round(t - start, 1), jpg))
-        t += step
+def split_jpegs(blob):
+    """Split a concatenated ffmpeg mjpeg pipe into individual JPEG bytes."""
+    out = []; i = 0
+    while True:
+        a = blob.find(b'\xff\xd8', i)
+        if a < 0: break
+        b = blob.find(b'\xff\xd9', a + 2)
+        if b < 0: break
+        out.append(blob[a:b + 2]); i = b + 2
+    return out
+
+def frames(src, start, end, step, width=512, quality=5):
+    """[(t_relative, jpeg_bytes)] every `step` seconds. One ffmpeg process, cached under data/narrate/frames."""
+    import lowpower
+    dur = max(0.1, end - start)
+    src = Path(src)
+    try: stamp = src.stat().st_mtime_ns
+    except OSError: stamp = 0
+    key = hashlib.sha1(f'{src.resolve()}|{stamp}|{start:.2f}|{end:.2f}|{step:.3f}|{width}|{quality}'.encode()).hexdigest()[:20]
+    cache = CACHE / 'frames' / f'{key}.jpgbin'
+    blob = b''
+    if cache.exists():
+        try: blob = cache.read_bytes()
+        except OSError: blob = b''
+    if not blob:
+        cmd = ['ffmpeg', '-v', 'error', *lowpower.thread_args(), '-ss', f'{start:.2f}', '-t', f'{dur:.2f}', '-i', str(src),
+               '-vf', f'fps={1 / step:.6f},scale={width}:-2', '-q:v', str(quality), '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1']
+        blob = subprocess.run(cmd, capture_output=True).stdout
+        if blob:
+            try:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_bytes(blob)
+            except OSError: pass
+    out = []
+    for i, jpg in enumerate(split_jpegs(blob)):
+        t = round(i * step, 1)
+        if t < dur - .2: out.append((t, jpg))
     return out
 
 def slug(text, n=50):
@@ -102,8 +134,9 @@ def img_parts(fr):
 
 def overview_and_moments(src, meta, count, min_len, max_len, title=''):
     """Gemini looks at the whole source (frames every 2-6 s) and proposes moments worth narrating."""
-    dur = meta['duration']; step = max(2.0, dur / 150)
-    fr = frames(src, 0, dur, step, 384)
+    import lowpower
+    dur = meta['duration']; step, width, quality = lowpower.gemini_limits(dur, 'overview')
+    fr = frames(src, 0, dur, step, width, quality)
     prompt = (f'These are frames sampled every {step:.1f}s from a video{(" titled " + json.dumps(title)) if title else ""} (duration {dur:.1f}s). '
               f'It is GTA / Grand Theft Auto 6 footage. Give a short overview of what the video shows (setting, characters, story beats), then pick the {count} best, '
               f'most visually exciting or story-rich moments to turn into narrated vertical shorts. Each moment must be {min_len:.0f}-{max_len:.0f} seconds long, '
@@ -113,8 +146,10 @@ def overview_and_moments(src, meta, count, min_len, max_len, title=''):
     return gemini([{'text': prompt}] + img_parts(fr), temperature=.4)
 
 def write_script(src, start, end, tone, overview, kind='short', extra=''):
+    import lowpower
     dur = end - start; words = max(8, int((dur - 1.2) * WPS))
-    fr = frames(src, start, end, 1.5 if dur <= 70 else max(1.5, dur / 45), 512)
+    step, width, quality = lowpower.gemini_limits(dur, 'clip')
+    fr = frames(src, start, end, step, width, quality)
     prompt = (f'You are writing a voiceover for a {"vertical YouTube Short / TikTok" if kind == "short" else "segment of a long-form YouTube breakdown video"} '
               f'made from GTA 6 footage. Tone: {TONES.get(tone, tone)}\nContext about the whole video: {overview}\n{extra}\n'
               f'The frames below are sampled from this {dur:.1f}-second clip with their timestamps. First describe what happens as a scene timeline. '
@@ -190,20 +225,28 @@ def voiceover(text, path, max_len, voice, engine, rate=8):
 # ---------------------------------------------------------------- smart crop
 def crop_track(src, start, end, crop_w, src_w, src_h, fps=4):
     """x offset (pixels) of a crop_w-wide window over time, following motion + people, smoothed. -> [(t, x)]"""
-    import cv2, numpy as np
-    sw = 320; sh = int(src_h * sw / src_w); scale = src_w / sw
-    raw = subprocess.run(['ffmpeg', '-v', 'error', '-ss', f'{start:.2f}', '-t', f'{end - start:.2f}', '-i', str(src), '-vf', f'fps={fps},scale={sw}:{sh}',
-                          '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'], capture_output=True).stdout
+    import lowpower
+    import numpy as np
+    cheap = lowpower.enabled()
+    if cheap: fps = min(fps, 2)
+    sw = 320; sh = max(2, int(src_h * sw / src_w) // 2 * 2); scale = src_w / sw
+    raw = subprocess.run(['ffmpeg', '-v', 'error', *lowpower.thread_args(), '-ss', f'{start:.2f}', '-t', f'{end - start:.2f}', '-i', str(src),
+                          '-vf', f'fps={fps},scale={sw}:{sh}', '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'], capture_output=True).stdout
     n = len(raw) // (sw * sh)
     if n < 2: return [(0, (src_w - crop_w) / 2)]
     fr = np.frombuffer(raw[:n * sw * sh], np.uint8).reshape(n, sh, sw).astype(np.float32)
+    if not cheap:
+        import cv2
     cols = np.arange(sw, dtype=np.float32); centre = sw / 2
     xs = []; prev_c = centre
     for i in range(n):
         diff = np.abs(fr[i] - fr[i - 1]) if i else np.zeros_like(fr[0])
         cut = diff.mean() > 40                          # scene cut: motion is meaningless, reset to centre bias
-        sal = cv2.GaussianBlur(np.abs(cv2.Laplacian(fr[i], cv2.CV_32F)), (0, 0), 6)    # detail/edges
-        energy = (0 if cut else diff.sum(0) * 2.0) + sal.sum(0) * .15
+        if cheap:
+            energy = np.zeros(sw) if cut else diff.sum(0)          # column motion on the 320px proxy; no OpenCV
+        else:
+            sal = cv2.GaussianBlur(np.abs(cv2.Laplacian(fr[i], cv2.CV_32F)), (0, 0), 6)    # detail/edges
+            energy = (0 if cut else diff.sum(0) * 2.0) + sal.sum(0) * .15
         prior = np.exp(-((cols - centre) / (sw * .35)) ** 2)        # prefer the middle of the frame
         w = energy * prior
         c = float((w * cols).sum() / max(w.sum(), 1e-6)) if w.sum() > 0 else centre
@@ -263,8 +306,10 @@ def captions_ass(words, folder, name, hook, width, height, caption_y, size, hook
 def render(src, start, end, voice_mp3, words, out, *, vertical=True, hook='', audio_mode='duck', duck=.15, fps=60, fill=1.0,
            voice_delay=.35, crf=21, maxrate='9M', title_card=None, speed=1.0, darken=0.0):
     """One narrated clip. Original audio muted or ducked to `duck` under the voice; captions follow the narration."""
+    import lowpower, encoders
     src = Path(src).resolve(); voice_mp3 = Path(voice_mp3).resolve()
-    meta = probe(src); W, H = (1080, 1920) if vertical else (1920, 1080)
+    meta = probe(src); W, H = lowpower.short_size() if vertical else lowpower.long_size()
+    flags = 'bilinear' if lowpower.enabled() else 'lanczos'
     dur = end - start; out = Path(out); work = out.with_suffix('')
     vdur = dur / speed
     ws = [{'start': w['start'] + voice_delay, 'end': w['end'] + voice_delay, 'text': w['text']} for w in words]
@@ -280,45 +325,69 @@ def render(src, start, end, voice_mp3, words, out, *, vertical=True, hook='', au
         cw = int(round(sh * (W / vh))) // 2 * 2            # crop width keeping the output aspect of the video area
         cw = min(cw, sw)
         x = piecewise(crop_track(src, start, end, cw, sw, sh)) if cw < sw else '0'
-        vf = f'[0:v]setpts=(PTS-STARTPTS)/{speed},crop={cw}:{sh}:{x}:0,scale={W}:{vh}:flags=lanczos,setsar=1'
+        vf = f'[0:v]setpts=(PTS-STARTPTS)/{speed},crop={cw}:{sh}:{x}:0,scale={W}:{vh}:flags={flags},setsar=1'
         if fill < .999:
-            vf = (f'[0:v]setpts=(PTS-STARTPTS)/{speed},split=2[b][f];[b]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20:2,eq=brightness=-.12[bg];'
-                  f'[f]crop={cw}:{sh}:{x}:0,scale={W}:{vh}:flags=lanczos[fg];[bg][fg]overlay=0:(H-h)/2,setsar=1')
+            blur = '8:1' if lowpower.enabled() else '20:2'
+            vf = (f'[0:v]setpts=(PTS-STARTPTS)/{speed},split=2[b][f];[b]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur={blur},eq=brightness=-.12[bg];'
+                  f'[f]crop={cw}:{sh}:{x}:0,scale={W}:{vh}:flags={flags}[fg];[bg][fg]overlay=0:(H-h)/2,setsar=1')
     else:
-        vf = f'[0:v]setpts=(PTS-STARTPTS)/{speed},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},setsar=1'
+        vf = f'[0:v]setpts=(PTS-STARTPTS)/{speed},scale={W}:{H}:force_original_aspect_ratio=increase:flags={flags},crop={W}:{H},setsar=1'
     if darken: vf += f',eq=brightness=-{darken}'
     vf += f',fps={fps},ass=filename={ass.name}[v]'
     d_ms = int(voice_delay * 1000)
     vo = f'[1:a]aresample=48000,adelay={d_ms}|{d_ms},apad,atrim=0:{vdur:.3f}[vo]'
+    norm = 'alimiter=limit=0.95' if lowpower.enabled() else 'loudnorm=I=-14:TP=-1.5:LRA=11'   # loudnorm is a second full pass
     if audio_mode == 'mute' or not meta['audio']:
-        af = vo + ';[vo]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]'
+        af = vo + f';[vo]{norm},aresample=48000[a]'
     else:
         atempo = f',atempo={speed}' if speed != 1 else ''
         # game audio sits at `duck` under the voice and comes back up (to ~2.5x duck) in the gaps
         af = (vo + f';[vo]asplit[vo1][sc];[0:a]aresample=48000{atempo},asetpts=PTS-STARTPTS,volume={min(1, duck * 2.5):.3f}[g];'
               '[g][sc]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350:makeup=1[gd];'
-              f'[gd][vo1]amix=inputs=2:duration=first:normalize=0,afade=t=out:st={max(0, vdur - .4):.2f}:d=0.4,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]')
+              f'[gd][vo1]amix=inputs=2:duration=first:normalize=0,afade=t=out:st={max(0, vdur - .4):.2f}:d=0.4,{norm},aresample=48000[a]')
     fc = vf + ';' + af
-    cmd = ['ffmpeg', '-y', '-v', 'error', '-ss', f'{start:.3f}', '-t', f'{dur:.3f}', '-i', src, '-i', voice_mp3, '-filter_complex', fc,
-           '-map', '[v]', '-map', '[a]', '-t', f'{vdur:.3f}', '-c:v', 'libx264', '-preset', 'medium', '-crf', str(crf), '-maxrate', maxrate,
-           '-bufsize', '12M', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-movflags', '+faststart', out]
-    run(cmd, cwd=str(out.parent))
+    # One graph: trim, crop, scale, captions and the audio mix. No intermediate re-encode.
+    limit = ['-filter_threads', str(lowpower.threads())] if lowpower.threads() else []
+    prefix = ['ffmpeg', '-y', '-v', 'error', *lowpower.thread_args(), *limit,
+              '-ss', f'{start:.3f}', '-t', f'{dur:.3f}', '-i', src, '-i', voice_mp3, '-filter_complex', fc,
+              '-map', '[v]', '-map', '[a]', '-t', f'{vdur:.3f}']
+    suffix = ['-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-movflags', '+faststart', out]
+    errors = []
+    # Desktop stays libx264 medium. A small board tries the V4L2 hardware encoder, then ultrafast x264.
+    choices = encoders.h264(cq=crf, x264_preset='medium') if lowpower.enabled() else [['-c:v', 'libx264', '-crf', str(crf), '-preset', 'medium']]
+    for encoder in choices:
+        rate = ['-maxrate', maxrate, '-bufsize', '12M'] if encoder[1] == 'libx264' else []
+        try:
+            run(prefix + encoder + rate + suffix, cwd=str(out.parent))
+            break
+        except RuntimeError as e:
+            errors.append(str(e)[:240]); out.unlink(missing_ok=True)
+    else:
+        raise RuntimeError('encode failed: ' + ' | '.join(errors)[-800:])
     return out
 
 # ---------------------------------------------------------------- source
-def get_source(arg, height=1080):
+def get_source(arg, height=None):
+    import lowpower
+    if height is None: height = 720 if lowpower.enabled() else 1080
     p = Path(arg)
     if p.exists(): return p.resolve(), p.stem
     CACHE.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(ROOT))
     import ytdl
-    key = hashlib.sha1(arg.encode()).hexdigest()[:12]; target = CACHE / f'src_{key}.mp4'; info_f = CACHE / f'src_{key}.json'
+    key = hashlib.sha1(f'{arg}|{height}'.encode()).hexdigest()[:12]; target = CACHE / f'src_{key}_{height}.mp4'; info_f = CACHE / f'src_{key}_{height}.json'
+    legacy = CACHE / f'src_{hashlib.sha1(arg.encode()).hexdigest()[:12]}.mp4'
+    if height >= 1080 and not target.exists() and legacy.exists():
+        info_legacy = legacy.with_suffix('.json')
+        if info_legacy.exists(): return legacy, json.loads(info_legacy.read_text()).get('title', '')
     if target.exists() and info_f.exists(): return target, json.loads(info_f.read_text())['title']
     fmt = f'bv*[height<={height}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<={height}]+ba/b[height<={height}]/b'
-    with ytdl.YDL({'format': fmt, 'merge_output_format': 'mp4', 'outtmpl': str(CACHE / f'src_{key}.%(ext)s'), 'noplaylist': True, 'quiet': True, 'noprogress': True, 'no_warnings': True}) as y:
+    opts = {'format': fmt, 'merge_output_format': 'mp4', 'outtmpl': str(CACHE / f'src_{key}_{height}.%(ext)s'), 'noplaylist': True, 'quiet': True, 'noprogress': True, 'no_warnings': True}
+    if lowpower.enabled(): opts['concurrent_fragment_downloads'] = 2
+    with ytdl.YDL(opts) as y:
         info = y.extract_info(arg, download=True)
     if not target.exists():
-        cand = sorted(CACHE.glob(f'src_{key}.*'), key=lambda f: f.stat().st_size)
+        cand = sorted(CACHE.glob(f'src_{key}_{height}.*'), key=lambda f: f.stat().st_size)
         cand = [c for c in cand if c.suffix in ('.mp4', '.mkv', '.webm')]
         run(['ffmpeg', '-y', '-v', 'error', '-i', cand[-1], '-c', 'copy', target])
     info_f.write_text(json.dumps({'title': info.get('title', ''), 'url': arg}))
@@ -356,7 +425,8 @@ def make_shorts(src, title, plan, a, outdir):
         LOG(f'[short {i + 1}] voiceover ({len(s["narration"].split())} words)')
         words, vlen = voiceover(s['narration'], mp3, end - start - .6, a.voice, a.tts)
         end = min(meta['duration'], max(end, start + vlen + .9))        # never cut the voice off
-        LOG(f'[short {i + 1}] rendering {end - start:.1f}s 1080x1920')
+        import lowpower
+        LOG(f'[short {i + 1}] rendering {end - start:.1f}s {lowpower.short_size()[0]}x{lowpower.short_size()[1]}')
         out = render(src, start, end, mp3, words, outdir / f'{name}.mp4', vertical=True, hook=s.get('hook', ''), audio_mode=a.audio,
                      duck=a.duck, fps=a.fps, fill=a.fill)
         mp3.unlink(missing_ok=True)
@@ -453,7 +523,10 @@ def parser():
     p.add_argument('--audio', default='duck', choices=['duck', 'mute'], help='original game audio: ducked under the voice or muted')
     p.add_argument('--duck', type=float, default=.15, help='game audio level under the voice (0-1)')
     p.add_argument('--fill', type=float, default=1.0, help='share of the 9:16 height filled by the video (1 = full screen, .85 = light blurred bars)')
-    p.add_argument('--fps', type=int, default=60); p.add_argument('--long-fps', type=int, default=30)
+    p.add_argument('--fps', type=int, default=None, help='short frame rate (default 60, or 30 with --low-power)')
+    p.add_argument('--long-fps', type=int, default=None, help='long-form frame rate (default 30)')
+    p.add_argument('--low-power', action='store_true', help='720x1280 @30fps, ultrafast / v4l2m2m, fewer Gemini frames')
+    p.add_argument('--no-low-power', action='store_true', help='keep desktop quality even on a small ARM board')
     p.add_argument('--keep-parts', action='store_true')
     p.add_argument('--plan', help='reuse a saved plan.json (moments + chapters) instead of asking Gemini again')
     p.add_argument('--rerender', metavar='SHORT.json', nargs='+', help='re-voice/re-render saved shorts (no Gemini); source must be the same video')
@@ -463,7 +536,16 @@ def main(argv=None, log=None):
     global LOG
     if log: LOG = log
     a = parser().parse_args(argv)
+    if a.low_power and a.no_low_power: raise SystemExit('Use only one of --low-power and --no-low-power.')
+    if a.low_power: os.environ['NEONCLIPPING_LOW_POWER'] = '1'
+    elif a.no_low_power: os.environ['NEONCLIPPING_LOW_POWER'] = '0'
+    import lowpower
+    if a.fps is None: a.fps = lowpower.short_fps(None)
+    if a.long_fps is None: a.long_fps = 30
     outdir = Path(a.out); outdir.mkdir(parents=True, exist_ok=True)
+    if lowpower.enabled():
+        sw, sh = lowpower.short_size(); lw, lh = lowpower.long_size()
+        LOG(f'Low-power profile: shorts {sw}x{sh}@{a.fps}fps, long {lw}x{lh}@{a.long_fps}fps, download 720p, x264 ultrafast / v4l2m2m, no Whisper')
     if a.rerender:
         return [LOG('Re-rendered', rerender(j, a)['file']) or j for j in a.rerender]
     LOG('Getting source'); src, title = get_source(a.source)
