@@ -692,6 +692,8 @@ aiparts.attach(app)
 facecam_detect.attach(app,DATA)
 brands.attach(app,DATA)
 hooks.attach(app)
+import narrate_web
+narrate_web.attach(app)
 import transcripts
 transcripts.attach(app,DATA,state,probe,transcribe)
 import vision

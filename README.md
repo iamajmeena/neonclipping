@@ -303,3 +303,20 @@ Pick **Heading look** in step 04: *Impact* (default: big bold text, one accent w
 ## Cloud AI (optional)
 
 A slow PC without a GPU can use a cloud model instead of Ollama for scoring moments and writing titles and hooks. Open **Cloud AI (optional)** on the page, pick a provider (Groq, OpenRouter, Gemini, OpenAI or LM Studio), paste your key, press **Test connection**, tick **Use Cloud AI** and Save. Only the *text* of candidate clips is sent to your provider; videos, audio and frames never leave your PC. The key is stored in `data/llm.json` on your computer and is never shown again. Speech-to-text still uses YouTube's captions or the local model. Environment variables `NEONCLIPPING_LLM_BASE_URL`, `NEONCLIPPING_LLM_MODEL` and `NEONCLIPPING_LLM_KEY` also work.
+
+## Narrated clips (branch `narration`)
+
+`narrate.py` turns footage into **narrated** videos instead of clips with the original sound: Gemini looks at sampled frames, writes a
+scene timeline and a voiceover script (~2.5 words/sec; tone `hype`, `storyteller` or `news`), edge-tts speaks it (free; ElevenLabs optional),
+the game audio is ducked to ~15% under the voice (or muted), and GTA Neon captions follow the narration word by word. Shorts are full-screen
+1080x1920 @60fps with a smart crop that follows the action and a hook title for the first 3 s; `--long` also builds a 1920x1080 breakdown
+with intro, chapters and outro (chapter markers in the MP4 and timestamps in the description). Each video gets a `.json` and `.txt` with
+title, description, tags, hashtags and TikTok caption.
+
+    export GEMINI_API_KEY=...            # required
+    .venv/bin/python narrate.py "https://www.youtube.com/watch?v=QdBZY2fkU-0" --shorts 3 --long --out /workspace/gta6_out
+    .venv/bin/python narrate.py URL --rerender out/short_01_*.json --voice en-US-ChristopherNeural   # re-voice without new Gemini calls
+
+Options: `--tone`, `--voice`, `--tts edge|elevenlabs` (needs `ELEVENLABS_API_KEY`), `--audio duck|mute`, `--duck 0.15`, `--fill 1.0`,
+`--min-len/--max-len`, `--fps`, `--plan plan.json`. Web page: **Narrated clips** in the sidebar (`/narrate-ui`). Gemini answers are cached in
+`data/narrate/gemini/`, so re-running the same video is fast.
