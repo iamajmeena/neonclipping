@@ -327,7 +327,14 @@ def get_source(arg, height=1080):
 # ---------------------------------------------------------------- pipelines
 def save_meta(path, meta):
     path.with_suffix('.json').write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding='utf-8')
-    tags = lambda xs: ' '.join(('#' + x.lstrip('#').replace(' ', '')) for x in xs or [])
+    def tags(xs):
+        seen = []
+        for x in xs or []:
+            t = '#' + str(x).lstrip('#').replace(' ', '')
+            if t.lower() not in [k.lower() for k in seen]: seen.append(t)
+        return ' '.join(seen)
+    for k in ('youtube_hashtags', 'tiktok_hashtags'): meta[k] = tags(meta.get(k)).split() if meta.get(k) else meta.get(k)
+    if meta.get('tiktok_caption'): meta['tiktok_caption'] = re.sub(r'\s*#\w+', '', meta['tiktok_caption']).strip()   # hashtags are listed once, below
     lines = [f"TITLE: {meta['title']}", '', 'YOUTUBE DESCRIPTION:', meta.get('description', ''), '', tags(meta.get('youtube_hashtags')), '',
              'YOUTUBE TAGS: ' + ', '.join(meta.get('youtube_tags') or []), '']
     if meta.get('tiktok_caption') is not None:
