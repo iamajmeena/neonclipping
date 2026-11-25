@@ -30,7 +30,7 @@ main>header h1{text-shadow:0 4px 30px #ff4ba5aa}
 .social a.gh{background:#fff;color:#0b0912;border-color:#fff}.social a.ig{background:linear-gradient(90deg,#ff4ba5,#ff8a3d);border-color:transparent}.social a:hover{transform:translateY(-2px)}
 .star-ask{margin-top:10px;padding:12px 16px;border-radius:12px;background:#1f1829;border:1px solid var(--line)}.star-ask a{color:var(--lime);font-weight:700}
 
-.controls .toggle{display:flex;flex-direction:column;align-items:flex-start;gap:3px;font-size:13px;font-weight:600}
+.controls .toggle{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13px;font-weight:600}
 
 .stars{display:flex;gap:2px;margin-top:6px}.stars button{background:none;border:0;color:#5b4d70;font-size:22px;cursor:pointer;padding:0 2px;line-height:1}.stars button:hover,.stars button.on{color:#ffd45a}
 .stars:hover button{color:#ffd45a}.stars button:hover~button{color:#5b4d70}
@@ -100,7 +100,7 @@ html body .native-layout-mini .layout-inset{left:0;top:32%;width:100%;height:36%
 .output-controls{margin:18px 0}.native-layout-mini{flex-shrink:0}
 
 textarea{width:100%;background:var(--panel);color:var(--white);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit}
-label.check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+label.check{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
 details.panel>summary{cursor:pointer;list-style:none;font-size:16px}details.panel>summary::-webkit-details-marker{display:none}
 #style-panel .controls,#ai-panel .controls{flex-wrap:wrap;gap:12px;align-items:flex-end}
 #style-panel output{color:var(--cyan);font-weight:700}
@@ -173,3 +173,17 @@ details.lite summary small{color:var(--muted);margin-left:6px}
 .readiness .ok b{color:#d4fb58}
 .readiness .bad b{color:#ff6b8b}
 .readiness .bad{cursor:pointer;color:#ffd0da}
+
+/* Keep form rows separated and checkbox labels beside their controls. */
+.controls + .controls{margin-top:14px}
+.controls > label{max-width:100%}
+.controls > label > :is(input,select,textarea){max-width:100%}
+label.check input[type=checkbox],label.toggle input[type=checkbox]{flex:0 0 auto;width:auto;margin:0}
+#llm-panel .llm-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px;margin-top:16px}
+.llm-fields > label{min-width:0}
+.llm-fields :is(input,select){width:100%;min-height:44px}
+#llm-panel .llm-enable{margin:16px 0}
+#llm-panel .llm-actions{align-items:stretch;gap:12px}
+.llm-actions > button{min-height:48px;padding:12px 16px}
+#llm-note{overflow-wrap:anywhere}
+@media(max-width:480px){.llm-actions > button{flex:1 1 140px}}

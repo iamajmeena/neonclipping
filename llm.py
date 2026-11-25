@@ -213,8 +213,15 @@ def test():
     """Tiny real request so the user sees whether the key, address and model work."""
     started = time.monotonic()
     try:
-        answer = cloud_complete('Reply ONLY with JSON: {"ok": true}', 30, 0, True)
-        parse_json(answer)
+        answer = cloud_complete('Reply ONLY with JSON: {"ok": true}', 512, 0, True)
+        if not answer.strip():
+            raise RuntimeError('The model returned an empty reply. Try again or choose another model; it may have used its output budget for reasoning.')
+        try:
+            result = parse_json(answer)
+        except ValueError:
+            raise RuntimeError('The model replied, but did not return the JSON needed by the app. Try again or choose another model.') from None
+        if not isinstance(result, dict) or result.get('ok') is not True:
+            raise RuntimeError('The model replied, but did not pass the test. Expected {"ok": true}.')
         return {'ok': True, 'ms': int((time.monotonic() - started) * 1000), 'model': (config() or {}).get('model', '')}
     except Exception as e:      # noqa: BLE001
         return {'ok': False, 'error': str(e)[-260:]}

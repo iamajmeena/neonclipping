@@ -97,29 +97,51 @@
   }
 
   // ---------- API key pane
+  function connectedModel(s, box) {
+    box.innerHTML = '<b>Saved model: ' + esc(s.model || 'None') + '</b>' +
+      '<p class="muted">' + (s.ready ? 'Ready to test. Uses the saved connection; changes below must be saved first.' : 'Save and enable an AI connection below to test it.') + '</p>' +
+      '<div class="kd-row"><button type="button" class="mt-link" data-kd="test"' + (s.ready ? '' : ' disabled') + '>Test connected model</button>' +
+      '<span class="muted" id="kd-test-note" role="status" aria-live="polite"></span></div>';
+  }
   function keyDialog() {
     const d = $('key-dialog');
     $('st-body').innerHTML = '<p class="muted">A free key lets an online AI do the thinking (picking moments, hooks, titles, spelling) so a slow PC still feels fast. Only the <b>text</b> of a clip is sent; your video and audio stay on this PC. You can switch it off any time.</p>' +
-      '<div class="kd-grid" id="kd-grid">Loading…</div><div class="kd-steps" id="kd-steps" hidden></div>';
+      '<div class="au-card" id="kd-connected"></div><div class="kd-grid" id="kd-grid">Loading…</div><div class="kd-steps" id="kd-steps" hidden></div>';
+    const grid = $('kd-grid'), connected = $('kd-connected');
     request('/llm/settings').then(s => {
+      if (!grid.isConnected) return;
       const order = ['groq', 'gemini', 'nvidia', 'xai', 'openrouter', 'openai', 'lmstudio'], pr = s.presets || {};
       $('kd-grid').innerHTML = order.filter(k => pr[k]).map(k => '<button type="button" class="kd-p" data-prov="' + k + '"><b>' + esc(pr[k].label) + '</b><small>' + esc(pr[k].free || '') + '</small></button>').join('');
       d.dataset.presets = JSON.stringify(pr);
-      if (s.ready) $('kd-grid').insertAdjacentHTML('beforebegin', '<p class="kd-ok">✓ Working now: ' + esc(s.model) + '</p>');
-    }).catch(e => { $('kd-grid').textContent = e.message; });
+      connectedModel(s, connected);
+    }).catch(e => { if (grid.isConnected) grid.textContent = e.message; });
   }
   function keySteps(k) {
     const d = $('key-dialog'), p = JSON.parse(d.dataset.presets || '{}')[k]; if (!p) return;
     d.dataset.prov = k;
     const st = $('kd-steps'); st.hidden = false;
     st.innerHTML = '<div class="kd-step"><span>1</span><div><b>Get a free key</b><a class="kd-go" href="' + esc(p.key_url) + '" target="_blank" rel="noopener">Open ' + esc(p.label) + ' ↗</a><small>Sign in, press "Create API key", copy it.</small></div></div>' +
-      '<div class="kd-step"><span>2</span><div><b>Paste it here</b><input id="kd-key" type="password" autocomplete="off" placeholder="paste the key"></div></div>' +
+      '<div class="kd-step"><span>2</span><div><label for="kd-key">Paste it here</label><input id="kd-key" type="password" autocomplete="off" spellcheck="false" placeholder="paste the key"></div></div>' +
       '<div class="kd-step"><span>3</span><div><b>Model</b><div class="kd-row"><input id="kd-model" value="' + esc(p.model) + '" placeholder="press Find models"><button type="button" class="mt-link" data-kd="models">Find models</button></div><div id="kd-list" class="kd-list"></div></div></div>' +
       '<div class="kd-row"><button type="button" class="primary" data-kd="save">Save and test</button><span class="muted" id="kd-note"></span></div>';
   }
   async function keyAction(a) {
     const d = $('key-dialog'), p = JSON.parse(d.dataset.presets || '{}')[d.dataset.prov] || {}, note = t => { const n = $('kd-note'); if (n) n.textContent = t; };
     if (a === 'close') { d.close(); return; }
+    if (a === 'test') {
+      const button = d.querySelector('[data-kd="test"]'), result = $('kd-test-note');
+      if (!button || button.disabled) return;
+      button.disabled = true;
+      result.classList.remove('kd-ok');
+      result.textContent = 'Testing saved connection…';
+      try {
+        const r = await request('/llm/test', {});
+        result.textContent = r.ok ? 'Connected: ' + r.model + ' replied in ' + r.ms + ' ms.' : 'Test failed: ' + (r.error || 'No valid reply.');
+        result.classList.toggle('kd-ok', !!r.ok);
+      } catch (e) { result.textContent = 'Test failed: ' + e.message; }
+      finally { button.disabled = false; }
+      return;
+    }
     if (a === 'models') {
       const l = $('kd-list'); l.textContent = 'Asking the provider…';
       try { const r = await request('/llm/models', { base_url: p.base_url, api_key: $('kd-key').value }); l.innerHTML = (r.models || []).slice(0, 40).map(m => '<button type="button" class="kd-m" data-model="' + esc(m) + '">' + esc(m) + '</button>').join('') || 'No models listed.'; }
@@ -129,7 +151,8 @@
     if (a === 'save') {
       note('Saving and testing…');
       try {
-        await request('/llm/settings', { enabled: true, base_url: p.base_url, model: $('kd-model').value.trim(), api_key: $('kd-key').value.trim() });
+        const saved = await request('/llm/settings', { enabled: true, base_url: p.base_url, model: $('kd-model').value.trim(), api_key: $('kd-key').value.trim() });
+        if ($('kd-connected')) connectedModel(saved, $('kd-connected'));
         const r = await request('/llm/test', {});
         note(r.ok ? '✓ Works (' + r.ms + ' ms). Clips will now use ' + r.model + '.' : '✗ ' + (r.error || 'Did not work. Check the key and the model.'));
         if (r.ok) { $('kd-key').value = ''; const sum = $('mt-key'); if (sum) sum.classList.add('ok'); }
@@ -146,7 +169,9 @@
     if (e.target.closest('[data-sc]')) { shortcutAction(e.target.closest('[data-sc]').dataset.sc); return; }
     const f = e.target.closest('[data-feat]'); if (f && cat) { const feat = cat.features.find(x => x.key === f.dataset.feat); const def = feat.modes.includes(mode()); const next = !isOn(feat); if (next === def) delete own[feat.key]; else own[feat.key] = next; saveOwn(); draw(); return; }
     const stt = e.target.closest('[data-st]'); if (stt) { document.querySelectorAll('.st-tabs button').forEach(x => x.classList.toggle('on', x === stt)); if (stt.dataset.st === 'shortcut') shortcutPane(); else if (stt.dataset.st === 'auto') autoPane(); else keyDialog(); return; }
-    const pv = e.target.closest('[data-prov]'); if (pv) { document.querySelectorAll('.kd-p').forEach(x => x.classList.toggle('on', x === pv)); keySteps(pv.dataset.prov); return; }
+    // The dialog also stores data-prov. Only provider buttons select a provider;
+    // matching the dialog would rebuild the form on every input or Close click.
+    const pv = e.target.closest('button[data-prov]'); if (pv) { document.querySelectorAll('.kd-p').forEach(x => x.classList.toggle('on', x === pv)); keySteps(pv.dataset.prov); return; }
     const mm = e.target.closest('[data-model]'); if (mm) { $('kd-model').value = mm.dataset.model; return; }
     const ka = e.target.closest('[data-kd]'); if (ka) keyAction(ka.dataset.kd);
   });
