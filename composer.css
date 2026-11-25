@@ -77,9 +77,9 @@
 .sd-summary small,.sd-row small,.sd-folder small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
 .sd-row{display:flex;gap:14px;justify-content:space-between;align-items:center;padding:12px 0;border-top:1px solid #241b30}
 .sd-row b{font-size:13px}
-.sd-inline{display:flex;gap:8px;align-items:center}
+.sd-inline{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
 .sd-inline input[type=number]{width:80px}
-.sd-inline input[type=text]{flex:1;min-width:220px}
+.sd-inline input[type=text]{flex:1;min-width:min(220px,100%)}
 .sd-folder{border-top:1px solid #241b30;padding-top:12px;margin-top:4px}
 .sd-folder .sd-inline{margin:8px 0}
 .sd-warn{margin:6px 0;color:#ffd7ee;background:#2a1830;border:1px solid #5c2f50;border-radius:8px;padding:8px 10px;font-size:12px}

@@ -112,8 +112,19 @@ class LlmTests(unittest.TestCase):
 
     def test_test_helper(self):
         self.assertTrue(llm.test()['ok'])
+        self.assertEqual(Mock.log[0]['body']['max_tokens'], 512)
         Mock.script = [(500, {'error': 'boom'})]
         self.assertFalse(llm.test()['ok'])
+
+    def test_connection_test_explains_empty_or_invalid_replies(self):
+        for reply, message in [('', 'empty reply'), ('hello', 'did not return the JSON'),
+                               ('{"ok": false}', 'did not pass the test'), ('[]', 'did not pass the test')]:
+            with self.subTest(reply=reply):
+                Mock.script = [answer(reply)]
+                result = llm.test()
+                self.assertFalse(result['ok'])
+                self.assertIn(message, result['error'])
+                self.assertNotIn('SECRET', result['error'])
 
     def test_parse_json_variants(self):
         self.assertEqual(llm.parse_json('{"a": 1}'), {'a': 1})
