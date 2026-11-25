@@ -62,6 +62,20 @@ class ValidationTests(unittest.TestCase):
     def test_no_model_available_is_not_an_error(self):
         self.assertEqual(assistant.ask_model('hello', {})[1] if False else [], [])
 
+    def test_string_booleans_are_parsed_not_coerced_to_true(self):
+        for false_val in ('false', 'False', 'off', 'no', '0', 0):
+            act = assistant.normalize_action({'type': 'set_option', 'key': 'captions', 'value': false_val})
+            self.assertEqual(act['value'], False, false_val)
+            self.assertEqual(act['label'], 'captions off')
+            edit = assistant.normalize_action({'type': 'edit_clip', 'changes': {'captions': false_val}})
+            self.assertEqual(edit['changes']['captions'], False, false_val)
+            self.assertEqual(edit['label'], 'This clip: captions off')
+        for true_val in ('true', 'on', 'yes', '1', 1):
+            act = assistant.normalize_action({'type': 'set_option', 'key': 'heading_on', 'value': true_val})
+            self.assertEqual(act['value'], True, true_val)
+        self.assertIsNone(assistant.normalize_action({'type': 'set_option', 'key': 'captions', 'value': 'maybe'}))
+        self.assertIsNone(assistant.normalize_action({'type': 'edit_clip', 'changes': {'captions': 'maybe'}}))
+
 
 if __name__ == '__main__':
     unittest.main()

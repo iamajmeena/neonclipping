@@ -35,6 +35,21 @@ def _clamp(value, low, high):
     return max(low, min(high, int(round(float(value)))))
 
 
+def _parse_bool(value):
+    """Parse booleans from native bool, 0/1, or common string forms without bool('false') -> True."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        norm = value.strip().lower()
+        if norm in ('true', '1', 'yes', 'on'):
+            return True
+        if norm in ('false', '0', 'no', 'off'):
+            return False
+    return None
+
+
 def normalize_action(action):
     """A checked action dict (with a readable label) or None. Unknown types, keys and values are dropped."""
     if not isinstance(action, dict):
@@ -63,7 +78,9 @@ def normalize_action(action):
                     return None
                 label = ('4K' if value == 2160 else f'{value}p') + ' download'
             elif key in ('captions', 'heading_on'):
-                value = bool(value)
+                value = _parse_bool(value)
+                if value is None:
+                    return None
                 label = ('captions ' if key == 'captions' else 'opening heading ') + ('on' if value else 'off')
             elif key == 'aspect':
                 if value not in ASPECTS:
@@ -98,7 +115,10 @@ def normalize_action(action):
                 elif k == 'layout' and v in LAYOUT_IDS:
                     clean[k] = v; parts.append(LAYOUT_LABELS[v])
                 elif k == 'captions':
-                    clean[k] = bool(v); parts.append('captions ' + ('on' if v else 'off'))
+                    parsed = _parse_bool(v)
+                    if parsed is None:
+                        continue
+                    clean[k] = parsed; parts.append('captions ' + ('on' if parsed else 'off'))
                 elif k == 'aspect' and v in ASPECTS:
                     clean[k] = v; parts.append(ASPECTS[v])
             if not clean:
