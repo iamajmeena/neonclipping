@@ -3,6 +3,7 @@
 !.gitignore
 !LICENSE
 !README.md
+!README.vi.md
 !requirements.txt
 !run.ps1
 !run.sh
