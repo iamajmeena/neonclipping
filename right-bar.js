@@ -74,7 +74,7 @@
       try { q = ((await get('/queue')).jobs || []).filter(j => ['running', 'queued'].includes(j.status)); } catch (e) { /* PC only */ }
       const child = new Set(q.map(j => j.child).filter(Boolean));
       const rows = [];
-      const prog = async id => { try { const r = await fetch('/make/' + id); if (r.ok) { const j = await r.json(); return { p: j.progress, title: j.title || '', show: true }; } const r2 = await fetch('/status/' + id); if (r2.ok) { const j = await r2.json(); return { p: j.progress, title: j.title || '', show: !!j.url }; } } catch (e) { /* ignore */ } return {}; };
+      const prog = async id => { try { const r = await fetch('/make/' + id); if (r.ok) { const j = await r.json(); return { p: j.progress, title: j.title || '', show: !j.internal && j.kind !== 'export' && j.kind !== 'transcribe' }; } const r2 = await fetch('/status/' + id); if (r2.ok) { const j = await r2.json(); return { p: j.progress, title: j.title || '', show: !j.internal && !!j.url }; } } catch (e) { /* ignore */ } return {}; };
       for (const a of (rt.active || [])) {
         if (!['running', 'queued', 'starting', 'recording'].includes(a.status) || child.has(a.id)) continue;
         const pr = await prog(a.id); if (pr.show === false) continue;       // internal render step of a bigger job

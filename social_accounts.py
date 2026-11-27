@@ -16,11 +16,20 @@ import requests
 PROVIDERS={
     "youtube":("https://accounts.google.com/o/oauth2/v2/auth","https://oauth2.googleapis.com/token",
                "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"),
+    "x":("https://twitter.com/i/oauth2/authorize","https://api.x.com/2/oauth2/token",
+         "tweet.read tweet.write users.read media.write offline.access"),
     "instagram":("https://www.instagram.com/oauth/authorize","https://api.instagram.com/oauth/access_token",
                  "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_insights"),
+    "facebook":("https://www.facebook.com/v21.0/dialog/oauth","https://graph.facebook.com/v21.0/oauth/access_token",
+                "pages_show_list,pages_read_engagement,pages_manage_posts,publish_video"),
     "tiktok":("https://www.tiktok.com/v2/auth/authorize/","https://open.tiktokapis.com/v2/oauth/token/",
               "user.info.basic,video.publish,video.list"),
+    "linkedin":("https://www.linkedin.com/oauth/v2/authorization","https://www.linkedin.com/oauth/v2/accessToken",
+                "openid profile w_member_social"),
+    "threads":("https://threads.net/oauth/authorize","https://graph.threads.net/oauth/access_token",
+               "threads_basic,threads_content_publish,threads_manage_insights"),
 }
+PKCE_PLATFORMS={"youtube","x","tiktok"}
 pending={}
 lock=threading.RLock()
 
@@ -47,6 +56,8 @@ def vault(platform,value=None):
 
 
 def begin(platform):
+    if platform=="custom":
+        raise ValueError("Custom upload endpoints use a webhook URL and optional token instead of OAuth.")
     client,_,redirect=config(platform)
     if os.getenv("NEONCLIPPING_"+platform.upper()+"_TOKEN"):
         raise ValueError("An environment token supplies this account. Remove it before connecting a different account.")
@@ -59,17 +70,19 @@ def begin(platform):
         pending[state]=(time.monotonic()+600,platform,verifier,redirect)
     args={"client_key" if platform=="tiktok" else "client_id":client,"redirect_uri":redirect,"scope":PROVIDERS[platform][2],
           "response_type":"code","state":state}
-    if platform!="instagram":
+    if platform in PKCE_PLATFORMS:
         digest=hashlib.sha256(verifier.encode()).digest()
         args.update(code_challenge=base64.urlsafe_b64encode(digest).decode().rstrip("="),code_challenge_method="S256")
     if platform=="youtube":args.update(access_type="offline",prompt="consent")
     return {"url":PROVIDERS[platform][0]+"?"+urlencode(args)}
 
 
-def exchange(url,fields,method="POST"):
+def exchange(url,fields,method="POST",**extra):
     try:
-        response=requests.request(method,url,**({"params":fields} if method=="GET" else {"data":fields}),
-                                  timeout=30,allow_redirects=False)
+        opts={"params":fields} if method=="GET" else {"data":fields}
+        if extra.get("auth"):opts["auth"]=extra["auth"]
+        if extra.get("headers"):opts["headers"]=extra["headers"]
+        response=requests.request(method,url,timeout=30,allow_redirects=False,**opts)
         if not response.ok:raise ValueError("The platform declined authorization. Check the redirect URI, app settings and account permissions.")
         result=response.json()
     except requests.RequestException:
@@ -93,11 +106,21 @@ def finish(raw):
     client,secret,_=config(platform)
     payload={"client_key" if platform=="tiktok" else "client_id":client,"code":code,
              "redirect_uri":redirect,"grant_type":"authorization_code"}
-    if secret:payload["client_secret"]=secret
-    if platform!="instagram":payload["code_verifier"]=verifier
-    result=exchange(PROVIDERS[platform][1],payload)
+    extra={}
+    if platform=="x" and secret:
+        extra["auth"]=(client,secret)
+    elif secret:
+        payload["client_secret"]=secret
+    if platform in PKCE_PLATFORMS:payload["code_verifier"]=verifier
+    result=exchange(PROVIDERS[platform][1],payload,**extra)
     if platform=="instagram":
         result=exchange("https://graph.instagram.com/access_token",{"grant_type":"ig_exchange_token","client_secret":secret,
+                        "access_token":result["access_token"]},"GET")
+    elif platform=="facebook" and secret:
+        result=exchange("https://graph.facebook.com/v21.0/oauth/access_token",{"grant_type":"fb_exchange_token","client_id":client,
+                        "client_secret":secret,"fb_exchange_token":result["access_token"]},"GET")
+    elif platform=="threads" and secret:
+        result=exchange("https://graph.threads.net/access_token",{"grant_type":"th_exchange_token","client_secret":secret,
                         "access_token":result["access_token"]},"GET")
     vault(platform,result)
     return {"platform":platform}
@@ -110,15 +133,22 @@ def access_token(platform):
     with lock:
         record=vault(platform)
         if not record.get("access_token"):raise ValueError("Connect your account first.")
-        if record.get("expires_at",0)>time.time()+(86400 if platform=="instagram" else 120):return record["access_token"]
+        margin=86400 if platform in ("instagram","threads") else 120
+        if record.get("expires_at",0)>time.time()+margin:return record["access_token"]
         if platform=="instagram":
             result=exchange("https://graph.instagram.com/refresh_access_token",{"grant_type":"ig_refresh_token","access_token":record["access_token"]},"GET")
+        elif platform=="threads":
+            result=exchange("https://graph.threads.net/refresh_access_token",{"grant_type":"th_refresh_token","access_token":record["access_token"]},"GET")
         else:
             client,secret,_=config(platform)
             if not record.get("refresh_token"):raise ValueError("Reconnect this account to renew access.")
             payload={"client_key" if platform=="tiktok" else "client_id":client,"refresh_token":record["refresh_token"],"grant_type":"refresh_token"}
-            if secret:payload["client_secret"]=secret
-            result=exchange(PROVIDERS[platform][1],payload)
+            extra={}
+            if platform=="x" and secret:
+                extra["auth"]=(client,secret)
+            elif secret:
+                payload["client_secret"]=secret
+            result=exchange(PROVIDERS[platform][1],payload,**extra)
         vault(platform,{**record,**result})
         return result["access_token"]
 
@@ -135,10 +165,10 @@ def attach(app):
     @app.middleware("http")
     async def local_social(request,call_next):
         if request.url.path.startswith("/social/") or request.url.path=="/social-callback":
-            host=request.url.hostname
             origin=request.headers.get("origin")
-            if host not in ("127.0.0.1","localhost","::1") or (origin and origin!=str(request.base_url).rstrip("/")):
-                return JSONResponse({"detail":"Open publishing on the local app."},status_code=403)
+            sec_site=request.headers.get("sec-fetch-site")
+            if (origin and origin!=str(request.base_url).rstrip("/")) or sec_site=="cross-site":
+                return JSONResponse({"detail":"Open publishing from the NeonClipping app."},status_code=403)
         return await call_next(request)
 
     @app.post("/social/connect/{platform}")
@@ -153,6 +183,8 @@ def attach(app):
 
     @app.post("/social/disconnect/{platform}")
     def disconnect(platform:str):
+        if platform=="custom":
+            return {"ok":True}
         if platform not in PROVIDERS:raise HTTPException(400,"Unknown platform.")
         try:vault(platform,{})
         except ValueError as error:raise HTTPException(400,str(error)) from error

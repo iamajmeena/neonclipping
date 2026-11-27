@@ -251,18 +251,51 @@
     }, 2000);
     async function loadPhone() {
       try {
-        const p = await baseRequest('/phone/status');
+        const [p, sh] = await Promise.all([baseRequest('/phone/status'), baseRequest('/share/status').catch(() => null)]);
         if (!p.enabled) {
-          phoneBox.innerHTML = '📱 <b>Phone access is off.</b> To control live clipping and watch clips on your phone, close NeonClipping and start it with the <b>NeonClipping (phone access)</b> shortcut. Windows may ask once to allow it on private networks: choose Allow.';
+          phoneBox.innerHTML = '📱 <b>Other-device access is off</b> (started with <code>NEONCLIPPING_LAN=0</code>). Restart without <code>NEONCLIPPING_LAN=0</code> to use phones, tablets and laptops on <code>0.0.0.0</code>.';
         } else {
-          const urls = p.urls.length ? p.urls.map(u => '<b>' + u + '</b>').join(' or ') : '(no Wi-Fi address found)';
-          phoneBox.innerHTML = '📱 <b>Phone access is on.</b> On a phone connected to the same Wi-Fi open ' + urls + ' and enter the PIN <b style="color:var(--lime);font-size:18px;letter-spacing:.1em">' + p.pin + '</b> <button class="secondary" id="phone-newpin" style="margin-left:8px;padding:4px 10px">New PIN</button>' +
-            '<br><span class="muted">Only people on your Wi-Fi who know the PIN can open it. Uploads and file tools stay on this PC.</span>';
-          $('phone-newpin').onclick = async () => { await baseRequest('/phone/newpin', {}); loadPhone(); };
+          const urls = p.urls.length ? p.urls.map(u => '<b>' + u + '</b>').join(' or ') : '(use this device IP:' + p.port + ')';
+          let html = '📱 <b>All devices ON (0.0.0.0:' + p.port + ').</b> Open on phone, tablet or another PC: ' + urls;
+          if (p.pin_required && p.pin) {
+            html += ' · PIN <b style="color:var(--lime);font-size:18px;letter-spacing:.1em">' + p.pin + '</b> <button class="secondary" id="phone-newpin" style="margin-left:8px;padding:4px 10px">New PIN</button>';
+          } else {
+            html += ' <span class="muted">(full UI, no PIN)</span>';
+          }
+          if (sh) {
+            if (sh.running && sh.url) {
+              html += '<br>🌐 <b>Public share ON (Cloudflare):</b> <a href="' + sh.url + '" target="_blank" rel="noopener">' + sh.url + '</a> <button class="secondary" id="share-stop" style="margin-left:8px;padding:4px 10px">Stop sharing</button>';
+            } else {
+              html += '<br>🌐 <button class="secondary" id="share-start" style="margin-top:6px;padding:5px 12px">' + (sh.installed ? 'Share publicly via Cloudflare' : 'Share over internet (install Cloudflare)') + '</button>' + (sh.error ? ' <span class="muted">(' + sh.error + ')</span>' : '');
+            }
+          }
+          phoneBox.innerHTML = html;
+          if ($('phone-newpin')) $('phone-newpin').onclick = async () => { await baseRequest('/phone/newpin', {}); loadPhone(); };
+          if ($('share-stop')) $('share-stop').onclick = async () => { await baseRequest('/share/stop', {}); loadPhone(); };
+          if ($('share-start')) $('share-start').onclick = async () => {
+            const btn = $('share-start'); btn.disabled = true;
+            try {
+              const cur = await baseRequest('/share/status');
+              if (!cur.installed) {
+                if (!confirm('Cloudflare Tunnel (cloudflared) is not installed yet.\n\nDownload and install the official cloudflared binary locally into NeonClipping so you can share a temporary public HTTPS link?')) {
+                  btn.disabled = false; return;
+                }
+                btn.textContent = 'Installing Cloudflare…';
+                await baseRequest('/share/install', { confirm: true });
+              }
+              btn.textContent = 'Starting Cloudflare tunnel…';
+              await baseRequest('/share/start', {});
+              loadPhone();
+            } catch (err) {
+              alert(err.message);
+              loadPhone();
+            }
+          };
         }
       } catch (e) { phoneBox.textContent = ''; }
     }
     loadPhone();
+    window.__reloadDevicesShare = loadPhone;
   }
 
   // ---- keyboard shortcuts for trimming: I = in point, O = out point, Space = play / pause

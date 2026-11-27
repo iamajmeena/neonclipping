@@ -1,4 +1,4 @@
-# NeonClipping launcher (Windows). Creates .venv on first run, starts the app, opens the browser.
+# NeonClipping launcher (Windows). Creates .venv on first run, starts the app on 0.0.0.0, opens the browser.
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 if (-not (Test-Path .venv/Scripts/python.exe)) {

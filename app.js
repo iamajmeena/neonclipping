@@ -195,12 +195,16 @@ function showResultsOverview(batch, job) {
   });
   overview.append(list);
 }
-async function showMake(resumeId){const url=$('url').value.trim();if(!resumeId&&!url&&!id){status('Paste a video link or upload a file first.');return;}
- const b=$('make');b.disabled=true;$('make-results').hidden=false;$('make-results').querySelector('.star-ask')?.remove();$('make-grid').replaceChildren();$('make-overview').hidden=true;$('make-progress').style.width='2%';$('make-steps').innerHTML=makeStepsMarkup('source');
- try{const {job}=resumeId?await request('/make/'+resumeId+'/resume',{}):await request('/make',{...(url?{url}:{id}),count:Number($('count').value),mode:$('mode').value,source_height:Number(($('srcq')||{}).value)||1080,accurate:$('accurate').value,min_len:Number($('minlen').value),max_len:Number($('length').value),layout:makeLayout(),aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),cam:rect.cam,game:rect.game,top:Number($('top').value)/100,caption_style:style,language:$('language').value==='auto'?'':$('language').value,...(()=>{const pe=$('part-end')&&$('part-end').value.trim();if(!pe)return {};const a0=hms($('part-start').value||'0'),b0=hms(pe);return b0>a0?{from_s:a0,to_s:b0}:{};})()});
-  localStorage.setItem('neon-last-make',job);refreshResume();
-  const shown=new Set();
-  for(;;){const s=await request('/make/'+job);$('make-status').textContent=(s.stage||s.status)+' · '+Math.round((s.progress||0)*100)+'%';$('make-progress').style.width=Math.max(2,(s.progress||0)*100)+'%';$('make-steps').innerHTML=makeStepsMarkup(s.phase);
+let activeMakeJob=null;
+async function pollMake(job){
+ if(activeMakeJob===job)return;
+ activeMakeJob=job;
+ const b=$('make'),rb=$('resume-make');b.disabled=true;if(rb){rb.disabled=true;rb.hidden=true;}
+ $('make-results').hidden=false;$('make-results').querySelector('.star-ask')?.remove();$('make-grid').replaceChildren();$('make-overview').hidden=true;
+ const shown=new Set();
+ try{
+  for(;;){
+   const s=await request('/make/'+job);$('make-status').textContent=(s.stage||s.status)+' · '+Math.round((s.progress||0)*100)+'%';$('make-progress').style.width=Math.max(2,(s.progress||0)*100)+'%';$('make-steps').innerHTML=makeStepsMarkup(s.phase);
    (s.clips||[]).forEach(c=>{if(shown.has(c.file))return;shown.add(c.file);const d=document.createElement('div');d.className='mk';d.dataset.file=c.file;d.dataset.review=clipReady(c)?'ready':'review';
     if(c.error){d.textContent='Failed: '+c.error.slice(0,120);}else{const vid=document.createElement('video');vid.src='/media/'+c.file;vid.controls=true;vid.preload='metadata';const t=document.createElement('b');t.textContent=c.title;const m=document.createElement('small');m.textContent=Math.round(c.start)+'–'+Math.round(c.end)+'s · score '+c.score+(c.hook?' · "'+c.hook+'"':'');const a=document.createElement('a');a.href='/media/'+c.file;a.download='neonclipping-'+c.file+'.mp4';a.textContent='Download MP4';const rs=document.createElement('small');rs.textContent=[c.reason,c.review_reason].filter(Boolean).join(' · ');if(c.flags&&c.flags.length){rs.append(document.createElement('br'));const fl=document.createElement('span');fl.className='vflag';fl.textContent='Check before posting: '+c.flags.join(', ');rs.append(fl);}const vb=document.createElement('div');vb.className='viral';const ax=c.axes||{};const fmt=v=>v==null?'–':v;vb.title='Viral score is a heuristic: loudness, shouting, what is said, on-screen action and a local AI read. Your star ratings tune it.';const pt=c.parts||{},bar=(k,n)=>pt[k]==null?'':'<span class="vp"><i>'+n+'</i><em style="width:'+Math.round(Math.max(0,Math.min(25,pt[k]))*4)+'%"></em><small>'+pt[k]+'</small></span>';vb.innerHTML='<b>🔥 Viral '+(c.viral??c.score??'–')+'</b><span class="vr '+(clipReady(c)?'ok':'rv')+'">'+(clipReady(c)?'Ready to post':'Review first')+'</span>'+(Object.keys(pt).length?'<div class="vparts">'+bar('hook','Hook')+bar('engagement','Engagement')+bar('value','Value')+bar('shareability','Share')+'</div>':'<span>Energy '+fmt(ax.energy)+'</span><span>Action '+fmt(ax.action)+'</span><span>Words '+fmt(ax.words)+'</span><span>AI '+fmt(ax.ai)+'</span>');
     const metrics=document.createElement('div');
@@ -209,9 +213,18 @@ async function showMake(resumeId){const url=$('url').value.trim();if(!resumeId&&
     const fb=document.createElement('small');fb.className='fb';fb.textContent='Rate this clip ↑';const edit=document.createElement('button');edit.textContent='Edit clip';edit.onclick=()=>openSavedClip(d.dataset.file).catch(e=>status(e.message));d.append(vid,t,vb,metrics,m,rs,a,edit,campaignButton(s.game,c.hashtags),stars,fb);}
     appendVisualReview(d,c.visual_review);$('make-grid').append(d);});
    if(s.status==='error')throw Error(s.error);if(s.status==='done'){showResultsOverview(s,job);if(!(s.clips||[]).length){$('make-status').textContent=s.stage||'No moments matched. Broaden your filters and try again.';break;}$('make-status').textContent='Done · '+(s.clips||[]).length+' clips in '+s.elapsed_seconds+'s · also in My clips ('+(s.engine||'')+')';if(!$('make-results').querySelector('.star-ask')){const q=document.createElement('div');q.className='star-ask';q.innerHTML='Free and open-source. If these clips saved you time, <a href="https://github.com/iamajmeena/neonclipping" target="_blank" rel="noopener">★ star NeonClipping on GitHub</a> and follow <a href="https://www.instagram.com/iamajmeena/" target="_blank" rel="noopener">@iamajmeena</a> for more tools.';$('make-results').append(q);}break;}
-   await sleep(1000);}}catch(e){$('make-status').textContent=e.message;}finally{b.disabled=false;refreshResume();}}
+   await sleep(1000);
+  }
+ }catch(e){$('make-status').textContent=e.message;}finally{if(activeMakeJob===job)activeMakeJob=null;b.disabled=false;if(rb)rb.disabled=false;refreshResume();}
+}
+async function showMake(resumeId){if(activeMakeJob)return;const url=$('url').value.trim();if(!resumeId&&!url&&!id){status('Paste a video link or upload a file first.');return;}
+ const b=$('make'),rb=$('resume-make');b.disabled=true;if(rb)rb.disabled=true;$('make-results').hidden=false;$('make-results').querySelector('.star-ask')?.remove();$('make-grid').replaceChildren();$('make-overview').hidden=true;$('make-progress').style.width='2%';$('make-steps').innerHTML=makeStepsMarkup('source');
+ try{const {job}=resumeId?await request('/make/'+resumeId+'/resume',{}):await request('/make',{...(url?{url}:{id}),count:Number($('count').value),mode:$('mode').value,source_height:Number(($('srcq')||{}).value)||1080,accurate:$('accurate').value,min_len:Number($('minlen').value),max_len:Number($('length').value),layout:makeLayout(),aspect:$('aspect').value,resolution:Number($('resolution').value),fps:Number($('fps').value),cam:rect.cam,game:rect.game,top:Number($('top').value)/100,caption_style:style,language:$('language').value==='auto'?'':$('language').value,...(()=>{const pe=$('part-end')&&$('part-end').value.trim();if(!pe)return {};const a0=hms($('part-start').value||'0'),b0=hms(pe);return b0>a0?{from_s:a0,to_s:b0}:{};})()});
+  localStorage.setItem('neon-last-make',job);if(rb)rb.hidden=true;await pollMake(job);
+ }catch(e){$('make-status').textContent=e.message;b.disabled=false;if(rb)rb.disabled=false;refreshResume();}
+}
 $('make').onclick=()=>showMake(null);
-async function refreshResume(){const job=localStorage.getItem('neon-last-make');const button=$('resume-make');button.hidden=true;if(!job)return;try{const row=await request('/make/'+job);button.hidden=!row.can_resume;button.onclick=()=>showMake(job);}catch{}}
+async function refreshResume(){const button=$('resume-make');button.hidden=true;if(activeMakeJob)return;let job=localStorage.getItem('neon-last-make');let row=null;if(job){try{row=await request('/make/'+job);}catch{row=null;}}if(row&&row.status==='running'){pollMake(job);return;}try{const found=await request('/make/resumable');if(found&&found.active_job){localStorage.setItem('neon-last-make',found.active_job);pollMake(found.active_job);return;}if((!row||!row.can_resume)&&found&&found.job){job=found.job;localStorage.setItem('neon-last-make',job);row={can_resume:true,title:found.title};}}catch{}if(row&&row.can_resume){const target=row.resume_job||job;button.hidden=false;button.title=row.title?'Resume: '+row.title:'Resume interrupted batch';button.onclick=()=>showMake(target);}}
 refreshResume();
 
 const PRESETS={tl:{cam:{x:0,y:0,w:.24,h:.32},game:{x:.24,y:0,w:.76,h:1}},tr:{cam:{x:.76,y:0,w:.24,h:.32},game:{x:0,y:0,w:.76,h:1}},
@@ -445,9 +458,36 @@ function camFilter(){const g=k=>Number(document.getElementById('cam-'+k)?.value)
 ['contrast','brightness','saturation','clarity'].forEach(k=>{const el=document.getElementById('cam-'+k);if(!el)return;const out=document.getElementById('cam-'+k+'-o');const show=()=>{if(out)out.textContent=Number(el.value).toFixed(2);};el.addEventListener('input',()=>{show();if(typeof paint==='function')paint();});show();});
 const camReset=document.getElementById('cam-reset');if(camReset)camReset.onclick=()=>{const d={contrast:1,brightness:0,saturation:1,clarity:0};for(const k in d){const el=document.getElementById('cam-'+k);if(el){el.value=d[k];el.dispatchEvent(new Event('input'));}}};
 
-(async()=>{try{const s=await request('/ytdl/settings');if($('yt-browser'))$('yt-browser').value=s.cookies_browser||'';}catch(e){}
- if($('yt-save'))$('yt-save').onclick=async()=>{try{await request('/ytdl/settings',{cookies_browser:$('yt-browser').value});$('yt-note').textContent='Saved. Press Get preview again.';}catch(e){$('yt-note').textContent=e.message;}};
- const watch=new MutationObserver(()=>{const t=($('link-status').textContent||'')+' '+($('status')?.textContent||'');if(/bot check|not a bot/i.test(t)&&$('yt-login'))$('yt-login').open=true;});
+(async()=>{
+ const splitUrls=raw=>{const urls=[],ips=[];for(const line of String(raw||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean)){if(/^https:\/\/[^/\s]+\/.+/i.test(line))urls.push(line);else ips.push(line);}return {urls,ips:ips.join('\n')};};
+ const fill=s=>{
+  if($('yt-browser'))$('yt-browser').value=s.cookies_browser||'';
+  if($('yt-proxy-mode'))$('yt-proxy-mode').value=s.proxy_mode||'off';
+  if($('yt-proxy-country'))$('yt-proxy-country').value=s.proxy_country||'IN';
+  if($('yt-proxy'))$('yt-proxy').value=s.proxy||'';
+  if($('yt-proxy-github'))$('yt-proxy-github').checked=!!s.proxy_github;
+  if($('yt-proxy-rotate'))$('yt-proxy-rotate').checked=s.proxy_auto_rotate!==false;
+  if($('yt-proxy-list'))$('yt-proxy-list').value=[...(s.proxy_sources||[]),...(s.proxy_list?s.proxy_list.split('\n'):[])].join('\n');
+  if($('yt-note')&&s.proxy_stats){const st=s.proxy_stats;if(st.last_good||st.cached_count)$('yt-note').textContent=`Cached: ${st.cached_count||0} · Working: ${st.good_count||0}`+(st.last_good?` · Last OK: ${st.last_good}`:'');}
+ };
+ try{fill(await request('/ytdl/settings'));}catch(e){}
+ if($('yt-proxy-github'))$('yt-proxy-github').onchange=()=>{if($('yt-proxy-github').checked&&$('yt-proxy-mode')?.value==='off')$('yt-proxy-mode').value='fallback';};
+ if($('yt-save'))$('yt-save').onclick=async()=>{
+  try{
+   const parsed=splitUrls($('yt-proxy-list')?.value||'');
+   const body={cookies_browser:$('yt-browser')?.value||'',proxy_mode:$('yt-proxy-mode')?.value||'off',proxy_country:$('yt-proxy-country')?.value||'IN',
+               proxy:$('yt-proxy')?.value||'',proxy_github:!!$('yt-proxy-github')?.checked,proxy_auto_rotate:$('yt-proxy-rotate')?.checked!==false,
+               proxy_list:parsed.ips,proxy_sources:parsed.urls};
+   const res=await request('/ytdl/settings',body);fill(res);$('yt-note').textContent='Saved. Press Get preview or Make clips again.';
+  }catch(e){$('yt-note').textContent=e.message;}
+ };
+ if($('yt-proxy-refresh'))$('yt-proxy-refresh').onclick=async()=>{
+  const btn=$('yt-proxy-refresh');btn.disabled=true;$('yt-note').textContent='Fetching GitHub proxies & testing reachability...';
+  try{const r=await request('/ytdl/proxies/refresh',{proxy_country:$('yt-proxy-country')?.value||'IN'});
+   $('yt-note').textContent=`Fetched ${r.fetched} (${r.country}), ${r.alive} TCP-reachable now.`+(r.sample?.length?' Ready to rotate.':' Try ALL countries or add a custom proxy.');}
+  catch(e){$('yt-note').textContent=e.message;}finally{btn.disabled=false;}
+ };
+ const watch=new MutationObserver(()=>{const t=($('link-status')?.textContent||'')+' '+($('status')?.textContent||'');if(/bot check|not a bot|blocked in your country|not available in your country|geo.?restrict/i.test(t)&&$('yt-login'))$('yt-login').open=true;});
  if($('link-status'))watch.observe($('link-status'),{childList:true,characterData:true,subtree:true});
 })();
 

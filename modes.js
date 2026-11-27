@@ -65,6 +65,8 @@
       '<input id="au-hook" placeholder="https://… (leave empty for none)" value="' + esc(s.webhook_url || '') + '"></div>' +
       '<div class="au-card"><b>🚫 Words to avoid</b><small>A clip whose title, hook, description or captions contain one of these gets a red "Check before posting" tag.</small>' +
       '<textarea id="au-banned" rows="3" placeholder="one word per line or separated by commas">' + esc((s.banned || []).join(', ')) + '</textarea></div>' +
+      '<div class="au-card"><b>🚀 Auto video upload</b><small>Automatically upload finished clips to YouTube, X, Instagram, Facebook, TikTok, LinkedIn, Threads or custom endpoints.</small>' +
+      '<button type="button" class="mt-link" data-au="open-social">Open My clips → Publish &amp; Auto-upload</button></div>' +
       '<div class="kd-row"><button type="button" class="primary" data-au="save">Save</button><span class="muted" id="au-note"></span></div>';
   }
   async function autoSave() {
@@ -142,6 +144,7 @@
     const b = e.target.closest('[data-mode]'); if (b && $('mode')) { $('mode').value = b.dataset.mode; $('mode').dispatchEvent(new Event('change', { bubbles: true })); draw(); return; }
     if (e.target.closest('#mt-what')) { panelOpen = !panelOpen; draw(); return; }
     if (e.target.closest('#mt-reset')) { own = {}; saveOwn(); draw(); return; }
+    if (e.target.closest('[data-au="open-social"]')) { const d = $('key-dialog'); if (d && d.open) d.close(); const nav = document.querySelector('.nav[data-view="library"]'); if (nav) nav.click(); const sp = $('social-panel'); if (sp) { sp.open = true; const ab = $('social-auto-box'); if (ab) ab.open = true; sp.scrollIntoView({ behavior: 'smooth' }); } return; }
     if (e.target.closest('[data-au="save"]')) { autoSave(); return; }
     if (e.target.closest('[data-sc]')) { shortcutAction(e.target.closest('[data-sc]').dataset.sc); return; }
     const f = e.target.closest('[data-feat]'); if (f && cat) { const feat = cat.features.find(x => x.key === f.dataset.feat); const def = feat.modes.includes(mode()); const next = !isOn(feat); if (next === def) delete own[feat.key]; else own[feat.key] = next; saveOwn(); draw(); return; }

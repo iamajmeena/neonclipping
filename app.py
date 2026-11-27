@@ -1,6 +1,6 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
-import json, subprocess, uuid, threading, shutil
+import json, re, subprocess, uuid, threading, shutil
 import sys
 import time
 import os
@@ -32,7 +32,12 @@ DATA=Path(os.environ.get('NEONCLIPPING_DATA_DIR',str(ROOT/'data'))).resolve();DA
 @asynccontextmanager
 async def lifespan(application):
  try:yield
- finally:application.processing_queue.close()
+ finally:
+  application.processing_queue.close()
+  try:
+   import share
+   share.stop_tunnel()
+  except Exception:pass
 
 app=FastAPI(lifespan=lifespan)
 state={}
@@ -80,8 +85,11 @@ def cover_image(id:str):
  return FileResponse(path,media_type='image/jpeg')
 @app.get('/assets/{name}')
 def assets(name:str):
- if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js','studio.js','composer.js','composer.css','sidebar.js','library.js','right-bar.js','right-bar.css','editor.js','editor.css','capdraw.js','modes.js','modes.css','campaigns.js','campaigns.css','youtube-feed.js','youtube-feed.css'):raise HTTPException(404)
+ if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js','studio.js','composer.js','composer.css','sidebar.js','library.js','right-bar.js','right-bar.css','editor.js','editor.css','capdraw.js','modes.js','modes.css','campaigns.js','campaigns.css','youtube-feed.js','youtube-feed.css','i18n.js'):raise HTTPException(404)
  return FileResponse(ROOT/name)
+@app.get('/languages')
+def list_languages():
+ return {'special':languages.SPECIAL,'base':list(languages.BASE),'more':[{'code':c,'spoken':s,'english':e} for c,s,e in languages.MORE]}
 @app.get('/text/{id}/{kind}')
 def text_file(id:str,kind:str):
  if not id.isalnum() or kind not in ('srt','ass','vtt'):raise HTTPException(404)
@@ -120,7 +128,7 @@ def source_range(b):
 @app.post('/transcribe')
 def caption_job(b:dict):
  id,src,m,start,end=source_range(b);job=uuid.uuid4().hex
- state[job]={'status':'running','message':'Starting local captions'}
+ state[job]={'status':'running','kind':'transcribe','message':'Starting local captions'}
  language=b.get('language') or None
  if not languages.valid(language):raise HTTPException(400,'Choose Auto, Hinglish or a language from the list.')
  def work():
@@ -134,7 +142,37 @@ def caption_job(b:dict):
 def export(b:dict):
  return start_export(b)
 
-def start_export(b,job=None):
+def _run_ffmpeg_export(cmd,cwd,dur,on_progress=None):
+ """Run an FFmpeg export command with live `-progress pipe:1` parsing when duration is known."""
+ args=cmd[:4]+['-progress','pipe:1','-nostats']+cmd[4:]
+ proc=subprocess.Popen(args,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1,cwd=str(cwd))
+ err_chunks=[]
+ def _drain_err():
+  try:err_chunks.append(proc.stderr.read() or '')
+  except Exception:pass
+ err_thread=threading.Thread(target=_drain_err,daemon=True);err_thread.start()
+ last_p=-1.0
+ try:
+  if proc.stdout:
+   for line in proc.stdout:
+    line=line.strip()
+    if on_progress and dur>0 and line.startswith('out_time_us='):
+     try:
+      us=int(line.split('=',1)[1])
+      if us>=0:
+       p=min(.99,max(0.0,us/(dur*1_000_000.0)))
+       if p-last_p>=.01:
+        last_p=p;on_progress(p)
+     except ValueError:pass
+    elif line=='progress=end' and on_progress:
+     on_progress(1.0)
+ finally:
+  rc=proc.wait();err_thread.join(timeout=2)
+  if proc.stdout:proc.stdout.close()
+  if proc.stderr:proc.stderr.close()
+ return rc,''.join(err_chunks)
+
+def start_export(b,job=None,auto_source='export'):
  id,src,m,start,end=source_range(b)
  layout=b.get('layout','stack')
  if layout not in {x[0] for x in CATALOG}:raise HTTPException(400,'Choose a valid layout.')
@@ -172,7 +210,10 @@ def start_export(b,job=None):
  except (ValueError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
  try:plan=styling.plan(b,DATA)
  except ValueError as e:raise HTTPException(400,str(e))
- job=job or uuid.uuid4().hex;out=DATA/(job+'.mp4');state[job]={'status':'running','message':'Preparing export'}
+ is_internal=bool(auto_source is None or b.get('batch_id'))
+ job=job or uuid.uuid4().hex;out=DATA/(job+'.mp4')
+ state[job]={'status':'running','kind':'export','internal':is_internal,'message':'Preparing export','progress':0.0}
+ if b.get('batch_id'):state[job]['parent_job']=b['batch_id']
  def work():
   try:
    words=[]
@@ -237,21 +278,30 @@ def start_export(b,job=None):
    audio_filters=','.join(x for x in (voice_af,fade_af) if x)
    if audio_filters and amap:
     fc+=f';{amap}{audio_filters}[audio_finish]';amap='[audio_finish]';audio_filters=''
-   state[job].update(message='Rendering vertical clip with '+style+' captions' if visible_words else 'Rendering vertical clip')
+   state[job].update(message='Rendering vertical clip with '+style+' captions' if visible_words else 'Rendering vertical clip',progress=0.0)
    base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),'-filter_complex',fc,'-map',vmap,'-map',amap or '0:a?',*(['-af',audio_filters] if audio_filters else []),'-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
    if fps:base+=['-r',str(fps),'-fps_mode','cfr']
-   for encoder in encoders.h264(cq=20,x264_preset='fast',nv_preset='p5'):
+   preset=os.environ.get('NEONCLIPPING_X264_PRESET') or ('veryfast' if os.environ.get('NEONCLIPPING_CPU')=='1' else 'fast')
+   def _on_prog(p):
+    row=state.get(job)
+    if row and row.get('status')=='running':row['progress']=round(p,3)
+   rc,err=1,''
+   for encoder in encoders.h264(cq=20,x264_preset=preset,nv_preset='p5'):
     # NVIDIA: also decode the source on the GPU (4K VP9/AV1 on the CPU is what pinned it at 100%); retry on the CPU if that fails.
     for hw in ((['-hwaccel','auto'],[]) if encoder[1]!='libx264' and encoder[1]!='h264_videotoolbox' else ([],)):
-     r=subprocess.run(base[:4]+hw+base[4:]+encoder+['-pix_fmt','yuv420p',str(out)],capture_output=True,text=True,cwd=str(DATA))
-     if r.returncode==0:break
-    if r.returncode==0:break
-   if r.returncode:raise RuntimeError(r.stderr[-900:])
-   finished={'status':'done','file':job,'meta':probe(out),'encoder':encoder[1],'caption_words':len(visible_words),'srt':f'/text/{job}/srt' if visible_words else None}
+     rc,err=_run_ffmpeg_export(base[:4]+hw+base[4:]+encoder+['-pix_fmt','yuv420p',str(out)],DATA,dur,_on_prog)
+     if rc==0:break
+    if rc==0:break
+   if rc:raise RuntimeError(err[-900:])
+   finished={'status':'done','kind':'export','internal':is_internal,'file':job,'meta':probe(out),'encoder':encoder[1],'caption_words':len(visible_words),'srt':f'/text/{job}/srt' if visible_words else None}
    (DATA/(job+'.json')).write_text(json.dumps({'source':id,'settings':{**b,**saved_text,'words':words},'result':finished},indent=2),encoding='utf-8')
    state[job]=finished
+   if auto_source:
+    import social as _social, automation as _automation
+    clip_info={'file':job,'title':saved_text.get('title') or b.get('title') or 'NeonClipping clip','description':saved_text.get('post_caption') or b.get('post_caption') or '','hashtags':b.get('hashtags') or [],'score':b.get('viral_score'),'flags':_automation.check_clip([saved_text.get('title'),saved_text.get('hook'),saved_text.get('post_caption'),' '.join(str(w.get('text','')) for w in words)])}
+    _social.auto_queue_clip(app,DATA,clip_info,source=auto_source)
   except Exception as e:
-   import friendly;plain,original=friendly.explain(str(e)[-900:]);state[job]={'status':'error','error':plain,'error_detail':original}
+   import friendly;plain,original=friendly.explain(str(e)[-900:]);state[job]={'status':'error','kind':'export','internal':is_internal,'error':plain,'error_detail':original}
  threading.Thread(target=work,daemon=True).start();return {'job':job}
 try:LIVE_AUTO_HOURS=max(.25,float(os.environ.get('NEONCLIPPING_LIVE_AUTO_HOURS','3')))   # unattended creator-watch sessions stop after this many hours
 except ValueError:LIVE_AUTO_HOURS=3.0
@@ -433,21 +483,39 @@ def start_make(b, previous=None):
    from concurrent.futures import ThreadPoolExecutor as _TP
    W=curation.profile_weights(learn.load_weights(DATA),profile)
    performance=social.duration_preferences(DATA)
+   import proxies as _proxies
+   using_proxy=_proxies.config(DATA)['proxy_mode']!='off'
    def lowres_section(u,c):
     """A tiny 144p copy of just this candidate, only for looking at the action (motion, flashes, light strobes)."""
     from yt_dlp.utils import download_range_func
     name='lr_'+uuid.uuid4().hex
     with _yt({'format':'worst[ext=mp4]/bv*[height<=240][ext=mp4]/worst','outtmpl':str(DATA/(name+'.%(ext)s')),'merge_output_format':'mp4',
+              'retries':1,'fragment_retries':1,'concurrent_fragment_downloads':1,'socket_timeout':12,
+              'external_downloader_args':{'ffmpeg_i':['-rw_timeout','12000000']},
               'download_ranges':download_range_func(None,[(max(0,c['start']),c['end'])])}) as y:y.download([u])
     f=next(x for x in DATA.glob(name+'.*') if x.suffix not in ('.part','.ytdl'))
     return f,0.0
-   def choose(pool_clips,locate):
+   def lowres_whole(u):
+    """For up to ~45 min videos, fetching one tiny low-res file once avoids 8 slow range-seeks over a proxy."""
+    name='lrw_'+uuid.uuid4().hex
+    try:
+     with _yt({'format':'worst[height<=240][ext=mp4]/worst[ext=mp4]/worst','outtmpl':str(DATA/(name+'.%(ext)s')),'merge_output_format':'mp4',
+               'retries':1,'fragment_retries':1,'concurrent_fragment_downloads':2,'socket_timeout':12,'max_filesize':70*1024*1024}) as y:y.download([u])
+     return next((x for x in DATA.glob(name+'.*') if x.suffix not in ('.part','.ytdl') and x.stat().st_size>1024),None)
+    except Exception:
+     for x in DATA.glob(name+'.*'):x.unlink(missing_ok=True)
+     return None
+   def choose(pool_clips,locate,deadline_s=None):
     """Look at the action in the best candidates, re-rank with the learned weights, keep `count`."""
     K=min(len(pool_clips),count*2)
     top=pool_clips[:K];save(job,{'stage':'Checking action in the best moments','progress':.5})
+    prog_lock=threading.Lock();checked=[0]
+    deadline=(time.monotonic()+deadline_s) if deadline_s else None
     def one(c):
      tmp=None
      try:
+      if deadline and time.monotonic()>deadline:
+       c['_act']=None;c['reason']=c.get('reason','')+' (action check skipped — slow download)';return
       f,off=locate(c)
       tmp=f if str(f).startswith(str(DATA)) and Path(f).name.startswith('lr_') else None
       c['_act']=action.analyze(f,off,c['end']-c['start'])
@@ -457,7 +525,11 @@ def start_make(b, previous=None):
      except Exception as e:c['_act']=None;c['reason']=c.get('reason','')+' (no action check)'
      finally:
       if tmp:Path(tmp).unlink(missing_ok=True)
-    with _TP(max_workers=4) as ex:list(ex.map(one,top))
+      with prog_lock:
+       checked[0]+=1
+       save(job,{'stage':f'Checking action {checked[0]}/{len(top)}','progress':round(.5+.07*checked[0]/max(1,len(top)),3)})
+    workers=2 if using_proxy else 4
+    with _TP(max_workers=workers) as ex:list(ex.map(one,top))
     for c in top:
      if c.get('_act'):
       for key in ('motion','flash','strobe','cuts'):
@@ -515,7 +587,14 @@ def start_make(b, previous=None):
     game_name,game_tags=detect_game();chat_sig=chat_ready()
     try:found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,scan_report,language,DATA,min_len,False,yt_words,False,W,False,profile,focus_brief,include_phrases,exclude_phrases,game=game_name,heat=heat,chat=chat_sig,whole=flags['whole_pass'] or b.get('whole_pass') is True,rerank_on=flags['rerank'],fair=flags['fair_order'],quality=b.get('mode') in ('balanced','deep'),window=part_window)
     finally:beat['live']=False
-    found=choose(found,lambda c:lowres_section(url,c))
+    lr_whole=None
+    if duration<=2700:
+     save(job,{'stage':'Downloading low-res preview for action check','progress':.5})
+     lr_whole=lowres_whole(url)
+    try:
+     found=choose(found,(lambda c:(lr_whole,c['start'])) if lr_whole else (lambda c:lowres_section(url,c)),deadline_s=(None if lr_whole else (90 if using_proxy else 180)))
+    finally:
+     if lr_whole:Path(lr_whole).unlink(missing_ok=True)
     if not found:
      checkpoint_path.unlink(missing_ok=True)
      save(job,{'status':'done','stage':'No moments matched the transcript filters. Broaden the focus or required phrases.','progress':1,'clips':[],'elapsed_seconds':round(time.monotonic()-began,2)});return
@@ -565,17 +644,19 @@ def start_make(b, previous=None):
      for attempt in range(3):     # an FFmpeg crash on one section (seen on some FFmpeg 9.1 builds) must not lose the whole video
       try:
        with _yt({'format':(source_format(src_h) if attempt<2 else 'b[height<=720][ext=mp4]/b[height<=720]/b'),'merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
+                 'external_downloader_args':{'ffmpeg_i':['-rw_timeout','15000000']},
                  'download_ranges':download_range_func(None,[(max(0,c['start']-PAD),c['end']+PAD)])}) as y:y.download([url])
        return name
       except Exception:
        if attempt==2:raise
        time.sleep(3*(attempt+1))
-    pool=ThreadPoolExecutor(max_workers=3);sections=[pool.submit(section,i,c) if not finished(i) else None for i,c in enumerate(found)]
+    pool=ThreadPoolExecutor(max_workers=2 if using_proxy else 3);sections=[pool.submit(section,i,c) if not finished(i) else None for i,c in enumerate(found)]
    for i,c in enumerate(found):
     if finished(i):
+     used_titles_.add(str(completed[str(i)].get('title') or '').strip().casefold())
      done.append(completed[str(i)]);save(job,{'clips':list(done)})
      continue
-    save(job,{'stage':f'Preparing clip {i+1}/{len(found)}','phase':'prepare','clip_index':i+1})
+    save(job,{'stage':(f'Fetching clip section {i+1}/{len(found)}' if sections else f'Preparing clip {i+1}/{len(found)}'),'phase':'prepare','clip_index':i+1})
     if (not moments or exact_time) and c.get('transcript') and b.get('hook_enabled') is not False and not (c.get('hook') and c.get('hook_evidence')):      # the judge's hook is already backed by a quote: no second AI call
      try:
       import smart
@@ -683,22 +764,38 @@ def start_make(b, previous=None):
      saved=json.loads(output_record.read_text(encoding='utf-8'))
      if saved.get('result',{}).get('status')=='done':r=saved['result']
     if r is None:
-     save(job,{'stage':f'Exporting clip {i+1}/{len(found)}','phase':'render'})
-     ej=start_export(body,ej)['job']
-     while state.get(ej,{}).get('status')=='running':time.sleep(.7)
+     save(job,{'stage':f'Exporting clip {i+1}/{len(found)}','phase':'render','progress':round(.6+.4*i/len(found),3)})
+     ej=start_export(body,ej,auto_source=None)['job']
+     last_sub=-1
+     while state.get(ej,{}).get('status')=='running':
+      sub_p=float(state.get(ej,{}).get('progress') or 0)
+      pct=min(99,max(0,int(sub_p*100)))
+      if pct>=last_sub+2 or (pct>0 and last_sub<0):
+       last_sub=pct
+       save(job,{'stage':f'Exporting clip {i+1}/{len(found)} · {pct}%','progress':round(.6+.4*(i+min(.99,sub_p))/len(found),3)})
+      time.sleep(.7)
      r=state[ej]
-    import automation      # 5H: words-to-avoid check and webhook
-    flags_=automation.check_clip([c.get('title'),c.get('hook'),c.get('description'),' '.join(str(w.get('text','')) for w in (body.get('words') or []))])
+    import automation as _automation, social as _social      # 5H: words-to-avoid check, webhook, and optional auto-upload
+    flags_=_automation.check_clip([c.get('title'),c.get('hook'),c.get('description'),' '.join(str(w.get('text','')) for w in (body.get('words') or []))])
     done.append({'flags':flags_,'caption_fixes':c.get('caption_fixes',0),'hashtags':c.get('hashtags') or [],'description':c.get('description',''),'punch_words':c.get('highlight_words') or [],'parts':c.get('parts') or {},'viral':min(99,c['score']),'axes':axes(c.get('features') or {}),'file':ej,'start':c['start'],'end':c['end'],'title':c.get('title') or 'Clip %d'%(i+1),'hook':c.get('hook',''),'score':c['score'],'reason':c.get('reason',''),'review_reason':c.get('review_reason',''),
                  'error':r.get('error'),'srt':r.get('srt'),'visual_review':c.get('visual_review')})
     if r.get('status')=='done':
      completed[str(i)]=done[-1]
      persist()
-     automation.notify(DATA,done[-1])
+     _automation.notify(DATA,done[-1])
+     _social.auto_queue_clip(app,DATA,done[-1],source='make')
     save(job,{'clips':list(done),'stage':f'Rendered {i+1}/{len(found)}','progress':.6+.4*(i+1)/len(found)})
    if any(item.get('error') for item in done):
     raise RuntimeError('Some clips failed. Resume this batch to retry the missing clips.')
    checkpoint_path.unlink(missing_ok=True)
+   for prev_id in checkpoint.get('_chain') or []:
+    if isinstance(prev_id,str) and prev_id.isalnum():(DATA/(prev_id+'.resume.json')).unlink(missing_ok=True)
+   done_key=_source_key(b)
+   if done_key:
+    for rf in DATA.glob('*.resume.json'):
+     try:
+      if _source_key(json.loads(rf.read_text(encoding='utf-8')).get('request'))==done_key:rf.unlink(missing_ok=True)
+     except (OSError,ValueError):pass
    save(job,{'status':'done','stage':'Clips ready','phase':'complete','progress':1,'elapsed_seconds':round(time.monotonic()-began,1)})
   except Exception as e:      # plain words for the common failures (private video, no internet, disk full, FFmpeg missing...)
    import friendly;plain,original=friendly.explain(str(e)[-600:]);save(job,{'status':'error','error':plain,'error_detail':original})
@@ -750,11 +847,14 @@ def live_render(sess,start,dur,why,chat_feature):
  for k in styling.KEYS+brands.KEYS+hooks.KEYS:
   if o.get(k) not in (None,''):body[k]=o[k]
  lap('score')
- ej=export(body)['job']
+ ej=start_export(body,auto_source=None)['job']
  while state.get(ej,{}).get('status')=='running':time.sleep(.3)
  r=state[ej]
  if r.get('error'):raise RuntimeError(r['error'])
  lap('render')
+ import automation as _auto, social as _social
+ _live_flags=_auto.check_clip([title,hook,text])
+ _social.auto_queue_clip(app,DATA,{'file':ej,'title':title,'hook':hook,'score':viral,'flags':_live_flags},source='live')
  return {'secs':T,'file':ej,'title':title,'hook':hook,'why':why,'viral':viral,'axes':axes(feats),'at':int(sess.now()),'reason':why,'start':round(start),'end':round(start+real)}
 
 def start_live(target,opts,creator=None,before=24,after=14):
@@ -880,31 +980,92 @@ def restore_frozen(job:str,index:int,body:dict):
   app.neon['save'](job,{'restored':restored})
   return {'job':child}
 
+def _source_key(obj):
+ if not isinstance(obj,dict):return ''
+ url=str(obj.get('url') or '').strip()
+ if url:
+  m=re.search(r'(?:youtu\.be/|v=|/live/|/shorts/)([A-Za-z0-9_-]{11})',url)
+  if m:return 'yt:'+m.group(1)
+  return 'url:'+url.split('?')[0].rstrip('/').lower()
+ sid=str(obj.get('id') or '').strip()
+ return 'id:'+sid if sid else ''
+
+def _active_make_jobs():
+ return [(jid,row) for jid,row in list(state.items()) if row.get('status')=='running' and row.get('kind') not in ('export','transcribe') and ('phase' in row or 'clips' in row or 'source' in row)]
+
+def _resolve_resume_chain(job):
+ seen={job}
+ record=state.get(job,{})
+ while record.get('resumed_as') and record['resumed_as'] in state and record['resumed_as'] not in seen:
+  next_job=record['resumed_as']
+  seen.add(next_job)
+  job=next_job;record=state[job]
+ return job,record
+
+def _job_resumable(job,record):
+ if record.get('status')!='error':return False
+ path=DATA/(job+'.resume.json') if len(job)==32 and job.isalnum() else None
+ if not path or not path.is_file():return False
+ try:
+  prev=json.loads(path.read_text(encoding='utf-8'))
+  if prev.get('plan') and not (DATA/prev['plan']['media']).is_file():return False
+ except (OSError,ValueError,KeyError):return False
+ return True
+
+@app.get('/make/resumable')
+def latest_resumable():
+ active=_active_make_jobs()
+ if active:
+  aid,arow=active[0]
+  return {'job':None,'active_job':aid,'title':arow.get('title') or (arow.get('source') or {}).get('url') or 'Running batch','stage':arow.get('stage') or ''}
+ files=sorted(DATA.glob('*.resume.json'),key=lambda p:p.stat().st_mtime,reverse=True)
+ for f in files:
+  jid=f.name.split('.')[0]
+  if len(jid)!=32 or not jid.isalnum():continue
+  term_id,term_rec=_resolve_resume_chain(jid)
+  if _job_resumable(term_id,term_rec):
+   return {'job':term_id,'active_job':None,'title':term_rec.get('title') or (term_rec.get('source') or {}).get('url') or 'Interrupted batch','stage':term_rec.get('stage') or ''}
+ return {'job':None,'active_job':None}
+
 @app.post('/make/{job}/resume')
 def resume_make(job:str):
  with resume_lock:
-  record=state.get(job,{})
-  while record.get('resumed_as') and record['resumed_as'] in state:
-   next_job=record['resumed_as']
-   if state[next_job].get('status')!='error' or not (DATA/(next_job+'.resume.json')).is_file():break
-   job=next_job;record=state[job]
-  successor=record.get('resumed_as')
-  if successor and state.get(successor,{}).get('status') in ('running','done'):
-   return {'job':successor}
+  job,record=_resolve_resume_chain(job)
+  if record.get('status') in ('running','done'):
+   return {'job':job}
   path=DATA/(job+'.resume.json') if len(job)==32 and job.isalnum() else None
   if record.get('status')!='error' or not path or not path.is_file():
    raise HTTPException(409,'No interrupted analysis checkpoint is available.')
   previous=json.loads(path.read_text(encoding='utf-8'))
+  req_key=_source_key(previous.get('request'))
+  if req_key:
+   for aid,arow in _active_make_jobs():
+    if _source_key(arow.get('source'))==req_key:
+     app.neon['save'](job,{'resumed_as':aid})
+     return {'job':aid}
   if previous.get('plan') and not (DATA/previous['plan']['media']).is_file():
    raise HTTPException(409,'The cached source is missing. Start a new batch.')
+  chain=list(previous.get('_chain') or [])
+  if job not in chain:chain.append(job)
+  previous['_chain']=chain
   started=start_make(previous['request'],previous)
   app.neon['save'](job,{'resumed_as':started['job']})
+  if req_key:
+   for rf in DATA.glob('*.resume.json'):
+    oid=rf.name.split('.')[0]
+    if oid==job or len(oid)!=32 or not oid.isalnum():continue
+    try:
+     if _source_key(json.loads(rf.read_text(encoding='utf-8')).get('request'))==req_key and state.get(oid,{}).get('status')=='error':
+      app.neon['save'](oid,{'resumed_as':started['job']})
+    except (OSError,ValueError):pass
   return started
 
 @app.get('/make/{job}')
 def make_status(job:str):
- if job not in state:raise HTTPException(404,'Job unavailable after restart. Please retry.')
- return {**report.note_job_error(state[job]),'can_resume':state[job].get('status')=='error' and (DATA/(job+'.resume.json')).is_file()}
+ if job not in state or state[job].get('kind') in ('export','transcribe'):raise HTTPException(404,'Job unavailable after restart. Please retry.')
+ term_id,term_rec=_resolve_resume_chain(job)
+ can_resume=_job_resumable(term_id,term_rec)
+ return {**report.note_job_error(state[job]),'can_resume':can_resume,'resume_job':term_id if can_resume else None}
 @app.get('/status/{id}')
 def status(id:str):return report.note_job_error(state.get(id,{'status':'error','error':'Server restarted. Paste the link again to retry.'}))
 
@@ -988,22 +1149,36 @@ storage.attach(app,DATA,ROOT,lambda:any(row.get('status') in ('running','queued'
 
 @app.get('/ytdl/settings')
 def ytdl_settings_get():
- import ytdl
- browser,cookie_file=ytdl._config()
- return {'cookies_browser':browser,'cookie_file':bool(Path(cookie_file).is_file()),'js_runtime':sorted(ytdl.js_runtimes())}
+ import ytdl, proxies
+ browser,cookie_file=ytdl._config(DATA)
+ pcfg=proxies.config(DATA)
+ return {'cookies_browser':browser,'cookie_file':bool(Path(cookie_file).is_file()),'js_runtime':sorted(ytdl.js_runtimes()),
+         **pcfg,'proxy':proxies.redact_proxy(pcfg['proxy']),'proxy_stats':proxies.stats(DATA)}
 @app.post('/ytdl/settings')
 def ytdl_settings_set(b:dict):
- """Which browser's YouTube login to borrow when YouTube shows its bot check ('' turns it off)."""
- import ytdl
- browser=str(b.get('cookies_browser') or '').strip().lower()
- if browser not in ('','chrome','edge','firefox','brave','opera','vivaldi','chromium'):raise HTTPException(400,'Choose Chrome, Edge, Firefox, Brave, Opera or Vivaldi.')
- path=ytdl.DATA/'ytdl.json'
- try:cfg=json.loads(path.read_text(encoding='utf-8'))
- except (OSError,ValueError):cfg={}
- if browser:cfg['cookies_browser']=browser
- else:cfg.pop('cookies_browser',None)
- ytdl.DATA.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(cfg),encoding='utf-8')
- return {'ok':True,'cookies_browser':browser}
+ """Which browser's YouTube login to borrow when YouTube shows its bot check, plus optional proxy / GitHub auto-rotation."""
+ import ytdl, proxies
+ path=DATA/'ytdl.json'
+ if 'cookies_browser' in b:
+  browser=str(b.get('cookies_browser') or '').strip().lower()
+  if browser not in ('','chrome','edge','firefox','brave','opera','vivaldi','chromium'):raise HTTPException(400,'Choose Chrome, Edge, Firefox, Brave, Opera or Vivaldi.')
+  try:cfg=json.loads(path.read_text(encoding='utf-8'))
+  except (OSError,ValueError):cfg={}
+  if browser:cfg['cookies_browser']=browser
+  else:cfg.pop('cookies_browser',None)
+  DATA.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(cfg),encoding='utf-8')
+ try:pcfg=proxies.save_settings(DATA,b)
+ except ValueError as e:raise HTTPException(400,str(e))
+ browser,_=ytdl._config(DATA)
+ return {'ok':True,'cookies_browser':browser,**pcfg,'proxy':proxies.redact_proxy(pcfg['proxy']),'proxy_stats':proxies.stats(DATA)}
+@app.post('/ytdl/proxies/refresh')
+def ytdl_proxies_refresh(b:dict=None):
+ import proxies
+ b=b or {}
+ pcfg=proxies.config(DATA)
+ country=proxies.normalize_country(b.get('proxy_country') or pcfg['proxy_country'])
+ raw,alive=proxies.refresh_pool(DATA,country=country)
+ return {'ok':True,'country':country,'fetched':len(raw),'alive':len(alive),'sample':[proxies.redact_proxy(p) for p in alive[:5]],'proxy_stats':proxies.stats(DATA)}
 
 @app.get('/update/status')
 def update_status():
@@ -1019,7 +1194,7 @@ def update_apply():
 
 @app.get('/runtime')
 def runtime():
- return {'active':[{'id':job,'status':row.get('status'),'stage':row.get('stage') or row.get('message','')} for job,row in list(state.items()) if row.get('status') in ('running','queued','starting','recording')]}
+ return {'active':[{'id':job,'status':row.get('status'),'stage':row.get('stage') or row.get('message','')} for job,row in list(state.items()) if row.get('status') in ('running','queued','starting','recording') and not row.get('internal')]}
 from reedit import attach as attach_reedit
 attach_reedit(app,DATA,state,probe,export,app.neon['save'])
 
@@ -1036,6 +1211,8 @@ jobs.attach(app,DATA,state,{'make':make,'export':export,'transcribe':caption_job
 styling.attach(app,DATA)
 import phone
 phone.attach(app,DATA,ROOT)
+import share
+share.attach(app,DATA,ROOT)
 import subtitles,facecam_detect,aiparts
 subtitles.attach(app)
 aiparts.attach(app)
@@ -1061,8 +1238,15 @@ timeline.attach(app,DATA,state,probe)
 import studio_plans
 studio_plans.attach(app,DATA,probe)
 
+def host_binding():
+ lan=os.environ.get('NEONCLIPPING_LAN','1')!='0'
+ return os.environ.get('NEONCLIPPING_HOST') or ('0.0.0.0' if lan else '127.0.0.1')
+
 if __name__=='__main__':
- lan=os.environ.get('NEONCLIPPING_LAN')=='1'      # phone remote: listen on the home network (PIN required, see phone.py); default is this PC only
+ host=host_binding()
+ port=int(os.environ.get('NEONCLIPPING_PORT','8770'))
+ lan=os.environ.get('NEONCLIPPING_LAN','1')!='0'
+ print(f'NeonClipping listening on http://{host}:{port} (local: http://127.0.0.1:{port})')
  if lan:
-  import phone as _ph;print('Phone access ON. Open one of these on your phone (same Wi-Fi):',', '.join(f"http://{ip}:{os.environ.get('NEONCLIPPING_PORT','8770')}/m" for ip in _ph.lan_ips()) or '(no Wi-Fi address found)')
- uvicorn.run(app,host='0.0.0.0' if lan else '127.0.0.1',port=int(os.environ.get('NEONCLIPPING_PORT','8770')))
+  import phone as _ph;print('Every-device access ON. Open on phone / tablet / other devices:',', '.join(f"http://{ip}:{port}" for ip in _ph.lan_ips()) or f'http://0.0.0.0:{port}')
+ uvicorn.run(app,host=host,port=port)

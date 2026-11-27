@@ -152,8 +152,55 @@
 
 (() => {
   const get = id => document.getElementById('social-'+id);
-  let account=null, pending=null;
+  let account=null, pending=null, platformsInfo=[];
   const note=t=>{get('note').textContent=t;};
+  function syncPlatformFields(){
+    const p=get('platform').value;
+    account=null;get('name').textContent='';get('privacy').replaceChildren();get('send').disabled=true;
+    get('ig').hidden=!['instagram','threads'].includes(p);
+    get('tt').hidden=p!=='tiktok';
+    if(get('custom-box'))get('custom-box').hidden=p!=='custom';
+    if(get('connect'))get('connect').hidden=p==='custom';
+  }
+  function renderPlatformCheckboxes(host,selected,prefix){
+    if(!host)return;
+    host.replaceChildren();
+    const list=platformsInfo.length?platformsInfo:[
+      {id:'youtube',label:'YouTube'},{id:'x',label:'X (Twitter)'},{id:'instagram',label:'Instagram'},
+      {id:'facebook',label:'Facebook'},{id:'tiktok',label:'TikTok'},{id:'linkedin',label:'LinkedIn'},
+      {id:'threads',label:'Threads'},{id:'custom',label:'More (Custom)'}];
+    for(const item of list){
+      const lbl=document.createElement('label');lbl.className='check';
+      const box=document.createElement('input');box.type='checkbox';box.value=item.id;
+      box.id=prefix+'-'+item.id;
+      if(Array.isArray(selected)&&selected.includes(item.id))box.checked=true;
+      lbl.append(box,document.createTextNode(item.label+(item.configured?' ✓':'')));
+      host.append(lbl);
+    }
+  }
+  async function loadAuto(){
+    try{
+      const cfg=await request('/social/auto');
+      platformsInfo=cfg.platforms_info||[];
+      if(get('auto-on'))get('auto-on').checked=!!cfg.enabled;
+      if(get('auto-draft'))get('auto-draft').value=cfg.draft_only?'1':'0';
+      if(get('auto-score'))get('auto-score').value=cfg.min_score??0;
+      if(get('auto-gap'))get('auto-gap').value=cfg.gap_minutes??30;
+      if(get('auto-cap'))get('auto-cap').value=cfg.daily_cap??4;
+      if(get('auto-skip-flagged'))get('auto-skip-flagged').checked=cfg.skip_flagged!==false;
+      if(get('auto-tags'))get('auto-tags').checked=cfg.include_hashtags!==false;
+      if(get('auto-media-url'))get('auto-media-url').value=cfg.media_base_url||'';
+      if(get('auto-custom-url'))get('auto-custom-url').value=cfg.custom_url||'';
+      if(get('custom-url'))get('custom-url').value=cfg.custom_url||'';
+      if(get('auto-custom-token'))get('auto-custom-token').placeholder=cfg.has_custom_token?'token saved (leave blank to keep)':'leave blank to keep existing';
+      if(get('custom-token'))get('custom-token').placeholder=cfg.has_custom_token?'token saved':'kept local';
+      renderPlatformCheckboxes(get('auto-platforms'),cfg.platforms||[],'social-auto-plat');
+      const existingMulti=[...document.querySelectorAll('#social-multi input:checked')].map(x=>x.value);
+      renderPlatformCheckboxes(get('multi'),existingMulti.length?existingMulti:(cfg.platforms||[]),'social-multi-plat');
+      const srcs=cfg.sources||['make','live'];
+      document.querySelectorAll('#social-auto-sources input[type=checkbox]').forEach(box=>{box.checked=srcs.includes(box.value);});
+    }catch{}
+  }
   async function history(){
     const host=get('history');host.replaceChildren();
     const rows=await request('/social/posts');
@@ -181,18 +228,40 @@
     }
   }
   async function init(){const list=await request('/library');get('clip').replaceChildren();
-    for(const row of list)get('clip').add(new Option(row.title,row.id));await history();}
+    for(const row of list)get('clip').add(new Option(row.title,row.id));await Promise.all([history(),loadAuto()]);}
   document.getElementById('social-panel').ontoggle=e=>{if(e.target.open)init().catch(err=>note(err.message));};
-  get('platform').onchange=()=>{account=null;get('name').textContent='';get('privacy').replaceChildren();get('send').disabled=true;
-    get('ig').hidden=get('platform').value!=='instagram';get('tt').hidden=get('platform').value!=='tiktok';};
+  get('platform').onchange=syncPlatformFields;
+  syncPlatformFields();
+  if(get('custom-save'))get('custom-save').onclick=async()=>{try{
+    await request('/social/auto',{custom_url:get('custom-url').value.trim(),custom_token:get('custom-token').value.trim()});
+    get('custom-token').value='';note('Custom upload endpoint saved. Press Check account to verify.');await loadAuto();
+  }catch(e){note(e.message);}};
+  if(get('auto-save'))get('auto-save').onclick=async()=>{
+    const anote=get('auto-note');anote.textContent='Saving…';
+    try{
+      const plats=[...document.querySelectorAll('#social-auto-platforms input:checked')].map(x=>x.value);
+      const srcs=[...document.querySelectorAll('#social-auto-sources input:checked')].map(x=>x.value);
+      const body={enabled:get('auto-on').checked,platforms:plats,sources:srcs,draft_only:get('auto-draft').value==='1',
+        min_score:Number(get('auto-score').value)||0,gap_minutes:Number(get('auto-gap').value)||0,
+        daily_cap:Number(get('auto-cap').value)||0,offset_minutes:-new Date().getTimezoneOffset(),
+        skip_flagged:get('auto-skip-flagged').checked,
+        include_hashtags:get('auto-tags').checked,media_base_url:get('auto-media-url').value.trim(),
+        custom_url:get('auto-custom-url').value.trim()};
+      const tok=get('auto-custom-token').value.trim();if(tok)body.custom_token=tok;
+      const saved=await request('/social/auto',body);
+      get('auto-custom-token').value='';
+      anote.textContent=saved.enabled?'✓ Auto-upload ON ('+saved.platforms.join(', ')+')':'✓ Saved (auto-upload off)';
+      await loadAuto();
+    }catch(e){anote.textContent='✗ '+e.message;}
+  };
   get('connect').onclick=async()=>{try{const r=await request('/social/connect/'+get('platform').value,{});
     const a=document.createElement('a');a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Continue on the platform';
     get('note').replaceChildren(a);}catch(e){note(e.message);}};
   get('finish').onclick=async()=>{const redirect=get('callback').value;get('callback').value='';
-    try{await request('/social/authorize',{redirect});note('Account connected. Check the account before posting.');}catch(e){note(e.message);}};
-  get('disconnect').onclick=async()=>{try{await request('/social/disconnect/'+get('platform').value,{});get('platform').onchange();note('Saved local connection cleared. Environment-supplied tokens are managed outside the app.');}
+    try{await request('/social/authorize',{redirect});note('Account connected. Check the account before posting.');await loadAuto();}catch(e){note(e.message);}};
+  get('disconnect').onclick=async()=>{try{await request('/social/disconnect/'+get('platform').value,{});syncPlatformFields();note('Saved local connection cleared. Environment-supplied tokens are managed outside the app.');await loadAuto();}
     catch(e){note(e.message);}};
-  get('account').onclick=async()=>{get('platform').onchange();const p=get('platform').value;
+  get('account').onclick=async()=>{syncPlatformFields();const p=get('platform').value;
     try{const found=await request('/social/account/'+p);if(get('platform').value!==p)return;account=found;
       get('name').textContent=account.name+' ('+account.id+')';get('privacy').add(new Option('Choose visibility',''));
       for(const choice of account.privacy)get('privacy').add(new Option(choice,choice));
@@ -207,4 +276,19 @@
       if(!pending || pending.signature!==signature)pending={signature,id:crypto.randomUUID()};
       await request('/social/posts',{...payload,request_id:pending.id});pending=null;note('Draft saved. Approve it below to queue publishing.');await history();
     }catch(e){note(e.message);}finally{get('send').disabled=!account;}};
+  if(get('send-multi'))get('send-multi').onclick=async()=>{
+    const selected=[...document.querySelectorAll('#social-multi input:checked')].map(x=>x.value);
+    if(!selected.length)return note('Check at least one platform below to publish.');
+    get('send-multi').disabled=true;
+    try{
+      const date=get('when').value;
+      const res=await request('/social/posts/batch',{platforms:selected,clip:get('clip').value,title:get('title').value,
+        media_url:get('url').value,when:date?new Date(date).getTime()/1000:0,own_brand:get('brand').checked,paid:get('paid').checked,
+        draft:false,gap_minutes:Number(get('gap').value)||0,daily_cap:Number(get('cap').value)||0,
+        offset_minutes:-new Date().getTimezoneOffset(),request_id:crypto.randomUUID()});
+      const ok=res.results.filter(r=>r.ok).map(r=>r.platform), fail=res.results.filter(r=>!r.ok).map(r=>r.platform+': '+r.error);
+      note((ok.length?'Queued for '+ok.join(', ')+'. ':'')+(fail.length?'Skipped: '+fail.join(' · '):''));
+      await history();
+    }catch(e){note(e.message);}finally{get('send-multi').disabled=false;}
+  };
 })();

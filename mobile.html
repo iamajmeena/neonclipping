@@ -3,64 +3,111 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0912"><meta name="color-scheme" content="dark">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/phone-icon.svg">
-<title>NeonClipping · phone</title>
+<title>NeonClipping · devices</title>
 <style>
 :root{--bg:#0b0912;--panel:#171320;--line:#30263e;--pink:#ff4ba5;--cyan:#58e8f7;--lime:#d4fb58;--white:#fbf6ff;--muted:#a99db7}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--white);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:max(14px,env(safe-area-inset-top)) 14px max(24px,env(safe-area-inset-bottom))}
+.wrap{max-width:760px;margin:0 auto}
 h1{font-size:20px;margin:4px 0 2px;letter-spacing:.02em}h1 b{color:var(--pink)}.sub{color:var(--muted);font-size:13px;margin-bottom:14px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}
 label.f{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
-input[type=text],input[type=password],input[type=tel],select{width:100%;background:#0f0b18;color:var(--white);border:1px solid var(--line);border-radius:12px;padding:13px;font:inherit}
-button{font:inherit;border:0;border-radius:14px;padding:14px 16px;font-weight:700;color:#fff;background:#2b2140;width:100%}
+input[type=text],input[type=password],input[type=tel],input[type=number],select{width:100%;background:#0f0b18;color:var(--white);border:1px solid var(--line);border-radius:12px;padding:13px;font:inherit}
+button{font:inherit;border:0;border-radius:14px;padding:14px 16px;font-weight:700;color:#fff;background:#2b2140;width:100%;cursor:pointer}
 button.main{background:linear-gradient(90deg,var(--pink),#9a4bff)}button.red{background:#d4204a}button.ghost{background:transparent;border:1px solid var(--line);color:var(--white)}
-button:disabled{opacity:.45}.row{display:flex;gap:8px}.row>*{flex:1}
-.seg button{padding:11px 6px;background:#0f0b18;border:1px solid var(--line);font-weight:600}.seg button.on{background:var(--pink);border-color:var(--pink)}
+button:disabled{opacity:.45;cursor:not-allowed}.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1;min-width:120px}
+.tabs{display:flex;gap:8px;margin-bottom:12px}.tabs button{padding:11px 10px;background:#120e1c;border:1px solid var(--line);font-size:14px}.tabs button.on{background:var(--pink);border-color:var(--pink);color:#140711}
+.seg button{padding:11px 6px;background:#0f0b18;border:1px solid var(--line);font-weight:600;min-width:0}.seg button.on{background:var(--pink);border-color:var(--pink)}
 .meter{height:16px;background:#0f0b18;border-radius:10px;overflow:hidden;border:1px solid var(--line)}.meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--lime),#ff9a3c,#ff2d55);transition:width .5s}
 .big{font-size:22px;font-weight:800}.muted{color:var(--muted);font-size:13px}.err{color:#ff7a90;font-size:14px;margin-top:8px}
-.clips{display:grid;gap:12px}.clip video{width:100%;border-radius:12px;background:#000;aspect-ratio:9/16;max-height:62vh}
+.clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}.clip video{width:100%;border-radius:12px;background:#000;aspect-ratio:9/16;max-height:62vh}
 .clip b{display:block;margin:8px 0 2px}.clip a{display:inline-block;margin-top:8px;padding:11px 16px;border-radius:12px;background:var(--lime);color:#111;text-decoration:none;font-weight:700;margin-right:8px}
 .hide{display:none}.pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--cyan)}
-</style></head><body>
-<h1>Neon<b>Clipping</b> <span class="pill">phone remote</span></h1>
-<div class="sub">The PC does the work. This screen controls it and plays your clips.</div>
+</style></head><body><div class="wrap">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+  <h1>Neon<b>Clipping</b> <span class="pill">all devices</span></h1>
+  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">🌐
+    <select id="m-ui-lang" aria-label="Web language" style="width:auto;padding:6px 10px;border-radius:99px">
+      <option value="en">English</option><option value="hinglish">Hinglish</option><option value="hi">हिंदी</option>
+      <option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option>
+      <option value="pt">Português</option><option value="ar">العربية</option>
+    </select>
+  </label>
+</div>
+<div class="sub" id="m-sub">Works on mobile, tablet and desktop. Your PC runs the AI and rendering; this screen controls it and plays clips.</div>
 
 <div id="login" class="card hide">
   <b>Enter the PIN shown on your PC</b>
   <label class="f">6-digit PIN</label><input id="pin" type="tel" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456">
   <div style="margin-top:12px"><button class="main" id="pin-go">Connect</button></div><div class="err" id="pin-err"></div>
-  <p class="muted">On the PC: open NeonClipping, look at <b>Phone access</b> under Live clipping.</p>
+  <p class="muted">On the PC: open NeonClipping and check <b>Devices &amp; Share</b> (or Live clipping).</p>
 </div>
 
 <div id="app" class="hide">
-  <div class="card">
-    <b>⚡ Live clipping</b>
-    <label class="f">YouTube Live or Twitch link</label><input id="url" type="text" inputmode="url" placeholder="https://www.youtube.com/watch?v=… or twitch.tv/name" autocapitalize="off" autocorrect="off">
-    <label class="f">Clip length (starts before the chat peak)</label>
-    <div class="row seg" id="len"><button data-l="10">10 s</button><button data-l="20" class="on">20 s</button><button data-l="30">30 s</button><button data-l="0">Auto</button></div>
-    <div class="row" style="margin-top:10px"><div><label class="f">Captions</label><select id="caps"><option value="1">On</option><option value="0">Off (faster)</option></select></div>
-    <div><label class="f">Style</label><select id="style"><option value="gta">GTA Neon</option><option value="bold">Bold</option><option value="hormozi">Hormozi</option><option value="mrbeast">MrBeast</option><option value="clean">Clean</option></select></div></div>
-    <label class="f">Hook text on top</label>
-    <select id="hook"><option value="ai">AI writes it</option><option value="title">Stream title</option><option value="custom">My own text</option></select>
-    <input id="hook-text" class="hide" type="text" maxlength="70" placeholder="Your hook text" style="margin-top:8px">
-    <div class="row" style="margin-top:14px"><button class="red" id="start">▶ Start monitoring</button><button class="ghost" id="stop" disabled>■ Stop</button></div>
-    <div class="err" id="live-err"></div>
+  <div class="tabs" role="tablist">
+    <button type="button" class="on" data-tab="live">⚡ Live</button>
+    <button type="button" data-tab="make">✂ Make clips</button>
+    <button type="button" data-tab="library">🎬 My clips</button>
   </div>
 
-  <div class="card" id="hype-card">
-    <div class="row" style="align-items:baseline"><b>🔥 Chat hype</b><span id="hype-label" class="muted" style="text-align:right">not started</span></div>
-    <div class="meter" style="margin:10px 0"><i id="hype-bar"></i></div>
-    <div class="muted" id="hype-info">Waiting for a live session…</div>
-    <div style="margin-top:12px"><button class="main" id="now" disabled>✂ Clip the last 20 s now</button></div>
-    <div class="muted" id="live-stats" style="margin-top:8px"></div>
+  <div id="pane-live">
+    <div class="card">
+      <b>⚡ Live clipping</b>
+      <label class="f">YouTube Live or Twitch link</label><input id="url" type="text" inputmode="url" placeholder="https://www.youtube.com/watch?v=… or twitch.tv/name" autocapitalize="off" autocorrect="off">
+      <label class="f">Clip length (starts before the chat peak)</label>
+      <div class="row seg" id="len"><button data-l="10">10 s</button><button data-l="20" class="on">20 s</button><button data-l="30">30 s</button><button data-l="0">Auto</button></div>
+      <div class="row" style="margin-top:10px"><div><label class="f">Captions</label><select id="caps"><option value="1">On</option><option value="0">Off (faster)</option></select></div>
+      <div><label class="f">Style</label><select id="style"><option value="karaoke">Karaoke</option><option value="gta">GTA Neon</option><option value="bold">Impact</option><option value="hormozi">Hormozi</option><option value="mrbeast">MrBeast</option><option value="clean">Clean</option></select></div>
+      <div><label class="f">Language</label><select id="lv-lang"><option value="">Auto (Hindi → Hinglish)</option></select></div></div>
+      <label class="f">Hook text on top</label>
+      <select id="hook"><option value="ai">AI writes it</option><option value="title">Stream title</option><option value="custom">My own text</option></select>
+      <input id="hook-text" class="hide" type="text" maxlength="70" placeholder="Your hook text" style="margin-top:8px">
+      <div class="row" style="margin-top:14px"><button class="red" id="start">▶ Start monitoring</button><button class="ghost" id="stop" disabled>■ Stop</button></div>
+      <div class="err" id="live-err"></div>
+    </div>
+
+    <div class="card" id="hype-card">
+      <div class="row" style="align-items:baseline"><b>🔥 Chat hype</b><span id="hype-label" class="muted" style="text-align:right">not started</span></div>
+      <div class="meter" style="margin:10px 0"><i id="hype-bar"></i></div>
+      <div class="muted" id="hype-info">Waiting for a live session…</div>
+      <div style="margin-top:12px"><button class="main" id="now" disabled>✂ Clip the last 20 s now</button></div>
+      <div class="muted" id="live-stats" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <b>🎬 Session clips</b> <span class="muted" id="count"></span>
+      <div class="clips" id="clips"></div>
+      <div class="muted" id="none">Clips appear here by themselves when chat explodes, or when you press “Clip now”.</div>
+    </div>
   </div>
 
-  <div class="card">
-    <b>🎬 Clips</b> <span class="muted" id="count"></span>
-    <div class="clips" id="clips"></div>
-    <div class="muted" id="none">Clips appear here by themselves when chat explodes, or when you press “Clip now”.</div>
+  <div id="pane-make" class="hide">
+    <div class="card">
+      <b>✂ Make clips from link</b>
+      <label class="f">YouTube, Twitch or Kick link</label><input id="mk-url" type="text" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" autocapitalize="off" autocorrect="off">
+      <div class="row">
+        <div><label class="f">Clips</label><input id="mk-count" type="number" min="1" max="12" value="3"></div>
+        <div><label class="f">Mode</label><select id="mk-mode"><option value="fast">⚡ Fast</option><option value="balanced">⚖ Balanced</option><option value="deep">🔬 Best</option></select></div>
+        <div><label class="f">Caption style</label><select id="mk-style"><option value="karaoke">Karaoke</option><option value="gta">GTA Neon</option><option value="tiktok">TikTok</option><option value="hormozi">Hormozi</option><option value="clean">Clean</option></select></div>
+        <div><label class="f">Caption language</label><select id="mk-lang"><option value="">Auto (Hindi → Hinglish)</option></select></div>
+      </div>
+      <div style="margin-top:12px"><button class="main" id="mk-go">⚡ Make clips</button></div>
+      <div class="muted" id="mk-status" style="margin-top:10px"></div>
+      <div class="meter" id="mk-wrap" style="margin-top:8px;display:none"><i id="mk-bar"></i></div>
+      <div class="err" id="mk-err"></div>
+      <div class="clips" id="mk-clips" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div id="pane-library" class="hide">
+    <div class="card">
+      <div class="row" style="align-items:center"><b>🎬 My clips</b><button type="button" class="ghost" id="lib-refresh" style="width:auto;padding:8px 14px">↻ Refresh</button></div>
+      <div class="clips" id="lib-clips" style="margin-top:12px"></div>
+      <div class="muted" id="lib-empty">No finished clips yet.</div>
+    </div>
   </div>
 </div>
 
+</div>
 <script>
 const $=id=>document.getElementById(id);
 let liveId=null,timer=null,shown=new Set(),length=20;
@@ -73,9 +120,25 @@ async function api(path,body){
 }
 function show(authed){$('login').classList.toggle('hide',authed);$('app').classList.toggle('hide',!authed);}
 $('pin-go').onclick=async()=>{$('pin-err').textContent='';try{await api('/m/login',{pin:$('pin').value});show(true);boot();}catch(e){$('pin-err').textContent=e.message;}};
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  ['live','make','library'].forEach(t=>$('pane-'+t).classList.toggle('hide',b.dataset.tab!==t));
+  if(b.dataset.tab==='library')loadLibrary();
+});
 $('len').querySelectorAll('button').forEach(b=>b.onclick=()=>{length=Number(b.dataset.l);$('len').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('now').textContent='✂ Clip the last '+(length||30)+' s now';});
 $('hook').onchange=()=>$('hook-text').classList.toggle('hide',$('hook').value!=='custom');
 function label(s){return s.status==='recording'?'● Recording '+Math.floor(s.elapsed/60)+':'+String(s.elapsed%60).padStart(2,'0'):s.status==='starting'?s.stage:s.stage||s.status;}
+function clipCard(file,title,subText,srtUrl){
+  const d=document.createElement('div');d.className='clip card';
+  const v=document.createElement('video');v.src='/media/'+file;v.controls=true;v.playsInline=true;v.preload='metadata';
+  const t=document.createElement('b');t.textContent=title||'Clip';
+  const w=document.createElement('div');w.className='muted';w.textContent=subText||'';
+  const a=document.createElement('a');a.href='/media/'+file;a.download='neonclipping-'+file+'.mp4';a.textContent='↓ Save';
+  d.append(v,t,w,a);
+  if(srtUrl){const s=document.createElement('a');s.href=srtUrl;s.textContent='↓ SRT';s.style.background='#2b2140';s.style.color='#fff';d.append(s);}
+  if(navigator.share){const sb=document.createElement('a');sb.href='#';sb.textContent='Share';sb.style.background='#2b2140';sb.style.color='#fff';sb.onclick=async e=>{e.preventDefault();try{const blob=await (await fetch('/media/'+file)).blob();await navigator.share({files:[new File([blob],'clip.mp4',{type:'video/mp4'})],title:title||'Clip'});}catch(x){}};d.append(sb);}
+  return d;
+}
 async function poll(){
   if(!liveId)return;
   try{
@@ -90,25 +153,85 @@ async function poll(){
   }catch(e){$('live-err').textContent=e.message;}
 }
 function addClip(c){
-  $('none').classList.add('hide');const d=document.createElement('div');d.className='clip card';
-  if(c.error){d.textContent='Clip failed: '+c.error;$('clips').prepend(d);return;}
-  const v=document.createElement('video');v.src='/media/'+c.file;v.controls=true;v.playsInline=true;v.preload='metadata';
-  const t=document.createElement('b');t.textContent=(c.title||'Clip')+(c.viral!=null?' · 🔥 '+c.viral:'');
-  const w=document.createElement('div');w.className='muted';w.textContent=c.why||'';
-  const a=document.createElement('a');a.href='/media/'+c.file;a.download='neonclipping-'+c.file+'.mp4';a.textContent='↓ Save';
-  d.append(v,t,w,a);
-  if(navigator.share){const sb=document.createElement('a');sb.href='#';sb.textContent='Share';sb.style.background='#2b2140';sb.style.color='#fff';sb.onclick=async e=>{e.preventDefault();try{const blob=await (await fetch('/media/'+c.file)).blob();await navigator.share({files:[new File([blob],'clip.mp4',{type:'video/mp4'})],title:c.title||'Clip'});}catch(x){}};d.append(sb);}
+  $('none').classList.add('hide');
+  if(c.error){const d=document.createElement('div');d.className='clip card';d.textContent='Clip failed: '+c.error;$('clips').prepend(d);return;}
+  const d=clipCard(c.file,(c.title||'Clip')+(c.viral!=null?' · 🔥 '+c.viral:''),c.why||'');
   $('clips').prepend(d);$('count').textContent=shown.size+' this session';
 }
 function attach(id){liveId=id;shown=new Set();$('clips').replaceChildren();$('none').classList.remove('hide');clearInterval(timer);timer=setInterval(poll,2000);poll();}
 $('start').onclick=async()=>{
   $('live-err').textContent='';const url=$('url').value.trim();if(!url){$('live-err').textContent='Paste the live link first.';return;}
   const [before,after]=PRE[length];
-  try{const r=await api('/live/start',{url,layout:'blur',caption_style:$('style').value,captions:$('caps').value==='1',hook_mode:$('hook').value,hook_text:$('hook-text').value,before,after});attach(r.live);}
+  try{const r=await api('/live/start',{url,layout:'blur',caption_style:$('style').value,captions:$('caps').value==='1',language:$('lv-lang').value,hook_mode:$('hook').value,hook_text:$('hook-text').value,before,after});attach(r.live);}
   catch(e){$('live-err').textContent=e.message;if(/already running/.test(e.message)){const a=await api('/live-active');if(a.live)attach(a.live);}}
 };
 $('stop').onclick=async()=>{if(!liveId)return;try{await api('/live/'+liveId+'/stop',{});}catch(e){}poll();};
 $('now').onclick=async()=>{if(!liveId)return;try{await api('/live/'+liveId+'/clip-now',{seconds:length||30});$('live-stats').textContent='Cutting the last '+(length||30)+' s…';}catch(e){$('live-err').textContent=e.message;}};
-async function boot(){try{const a=await api('/live-active');if(a.live)attach(a.live);}catch(e){}}
+$('mk-go').onclick=async()=>{
+  $('mk-err').textContent='';const url=$('mk-url').value.trim();if(!url){$('mk-err').textContent='Paste a video link first.';return;}
+  $('mk-go').disabled=true;$('mk-wrap').style.display='block';$('mk-bar').style.width='4%';$('mk-status').textContent='Starting…';$('mk-clips').replaceChildren();
+  try{
+    const {job}=await api('/make',{url,count:Number($('mk-count').value)||3,mode:$('mk-mode').value,caption_style:$('mk-style').value,language:$('mk-lang').value,layout:'blur',cam_auto:true});
+    for(;;){
+      const s=await api('/make/'+job);
+      $('mk-status').textContent=(s.stage||s.status)+' · '+Math.round((s.progress||0)*100)+'%';
+      $('mk-bar').style.width=Math.max(4,(s.progress||0)*100)+'%';
+      if(s.status==='error')throw Error(s.error||'Failed');
+      if(s.status==='done'){
+        for(const c of (s.clips||[])){if(!c.error)$('mk-clips').append(clipCard(c.file,c.title+(c.score!=null?' · 🔥 '+c.score:''),c.reason||'',c.srt?'/text/'+c.file+'/srt':''));}
+        $('mk-status').textContent='Done · '+(s.clips||[]).length+' clip(s)';
+        break;
+      }
+      await new Promise(r=>setTimeout(r,1200));
+    }
+  }catch(e){$('mk-err').textContent=e.message;}finally{$('mk-go').disabled=false;}
+};
+async function loadLibrary(){
+  try{
+    const list=await api('/library');
+    const host=$('lib-clips');host.replaceChildren();
+    $('lib-empty').classList.toggle('hide',!!list.length);
+    for(const item of list){
+      host.append(clipCard(item.id,item.title+(item.score!=null?' · 🔥 '+item.score:''),((item.meta||{}).duration||0).toFixed(1)+' s',item.srt?'/text/'+item.id+'/srt':''));
+    }
+  }catch(e){$('lib-empty').textContent=e.message;$('lib-empty').classList.remove('hide');}
+}
+$('lib-refresh').onclick=loadLibrary;
+async function loadLanguages(){
+  try{
+    const d=await api('/languages');
+    const opts=[['','Auto (Hindi → Hinglish)'],...Object.entries(d.special||{}),['hi','हिंदी (Devanagari)'],['en','English'],...(d.more||[]).map(x=>[x.code,x.english+' · '+x.spoken])];
+    for(const sel of [$('lv-lang'),$('mk-lang')]){
+      if(!sel)continue;sel.replaceChildren();
+      for(const [val,label] of opts)sel.add(new Option(label,val));
+    }
+  }catch(e){}
+}
+const M_DICT={
+  hinglish:{sub:'Mobile, tablet aur desktop par chalta hai. PC processing karta hai; yeh screen control karti hai.',live:'⚡ Live',make:'✂ Clips banao',library:'🎬 Mere clips'},
+  hi:{sub:'मोबाइल, टैबलेट और डेस्कटॉप पर चलता है। PC प्रोसेसिंग करता है; यह स्क्रीन कंट्रोल करती है।',live:'⚡ लाइव',make:'✂ क्लिप्स बनाएं',library:'🎬 मेरे क्लिप्स'},
+  es:{sub:'Funciona en móvil, tablet y escritorio. Tu PC procesa; esta pantalla controla y reproduce clips.',live:'⚡ En vivo',make:'✂ Crear clips',library:'🎬 Mis clips'},
+  fr:{sub:'Fonctionne sur mobile, tablette et ordinateur. Votre PC calcule ; cet écran contrôle et lit les clips.',live:'⚡ Direct',make:'✂ Créer clips',library:'🎬 Mes clips'},
+  de:{sub:'Funktioniert auf Handy, Tablet und Desktop. Dein PC rendert; dieser Bildschirm steuert alles.',live:'⚡ Live',make:'✂ Clips erstellen',library:'🎬 Meine Clips'},
+  pt:{sub:'Funciona no celular, tablet e computador. Seu PC processa; esta tela controla e reproduz clipes.',live:'⚡ Ao vivo',make:'✂ Criar clipes',library:'🎬 Meus clipes'},
+  ar:{sub:'يعمل على الجوال والتابلت والكمبيوتر. جهازك يعالج المقاطع وهذه الشاشة للتحكم والمشاهدة.',live:'⚡ بث مباشر',make:'✂ إنشاء مقاطع',library:'🎬 مقاطعي'},
+};
+function applyMobileLang(code){
+  const lang=M_DICT[code]?code:'en',d=M_DICT[lang]||{};
+  document.documentElement.lang=lang==='hinglish'?'en':lang;
+  document.documentElement.dir=lang==='ar'?'rtl':'ltr';
+  try{localStorage.setItem('nc-ui-lang',lang);}catch{}
+  $('m-sub').textContent=d.sub||'Works on mobile, tablet and desktop. Your PC runs the AI and rendering; this screen controls it and plays clips.';
+  const tabs=document.querySelectorAll('.tabs button');
+  if(tabs[0])tabs[0].textContent=d.live||'⚡ Live';
+  if(tabs[1])tabs[1].textContent=d.make||'✂ Make clips';
+  if(tabs[2])tabs[2].textContent=d.library||'🎬 My clips';
+  if($('m-ui-lang'))$('m-ui-lang').value=lang;
+}
+if($('m-ui-lang')){
+  $('m-ui-lang').onchange=()=>applyMobileLang($('m-ui-lang').value);
+  try{applyMobileLang(localStorage.getItem('nc-ui-lang')||'en');}catch{}
+}
+async function boot(){loadLanguages();try{const a=await api('/live-active');if(a.live)attach(a.live);}catch(e){}}
 (async()=>{try{await api('/live-active');show(true);boot();}catch(e){show(false);}})();
 </script></body></html>
