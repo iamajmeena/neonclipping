@@ -64,10 +64,10 @@ def make(data, job, title='', hook='', hook_visible=0.0):
     ass_file = data / (job + '.cover.ass')
     try:
         if text:
-            from captions import hook_lines
+            from captions import burn_filter, hook_lines
             lines = hook_lines(text, width=max(12, int(width / (82 * min(width / 1080.0, height / 1920.0) * .6))))
             ass_file.write_text(ass_text(lines, width, height), encoding='utf-8')
-            command += ['-vf', f'ass=filename={ass_file.name}']
+            command += ['-vf', f'{burn_filter()}=filename={ass_file.name}']
         r = subprocess.run(command + [str(out)], capture_output=True, text=True, timeout=60, cwd=str(data))
         if r.returncode or not out.exists():
             out.unlink(missing_ok=True)

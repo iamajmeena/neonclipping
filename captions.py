@@ -169,6 +169,22 @@ STYLE_NAMES=tuple(STYLES)+('clean',)
 
 def safe(text):return str(text).replace('\\','/').replace('{','(').replace('}',')').replace('\n',' ')
 
+BURN_FILTER=None
+def burn_filter():
+    """Name of the ffmpeg filter that burns the .ass captions onto the video. 'ass' needs libass, which the
+    essentials builds ship without, so the render failed at the last step with "No such filter: 'ass'".
+    'subtitles' reads the same .ass file and exists in essentially every build."""
+    global BURN_FILTER
+    if BURN_FILTER is None:
+        try:
+            listed=subprocess.run(['ffmpeg','-hide_banner','-filters'],capture_output=True,text=True,timeout=30).stdout.splitlines()
+        except Exception:listed=[]
+        names={line.split()[1] for line in listed if len(line.split())>2}
+        BURN_FILTER='ass' if 'ass' in names else 'subtitles' if 'subtitles' in names else ''
+    if not BURN_FILTER:
+        raise RuntimeError('Captions cannot be burned because this ffmpeg build has neither the ass nor the subtitles filter. Install a full ffmpeg build that includes libass and try again.')
+    return BURN_FILTER
+
 def group_words(words,max_words=4,max_chars=24,gap=0.45):
     """2-4 word caption groups that follow the speech: break after punctuation or a pause, never mid-phrase padding."""
     groups=[];cur=[]

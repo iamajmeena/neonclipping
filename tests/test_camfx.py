@@ -86,7 +86,7 @@ class Round3Tests(unittest.TestCase):
 
     def test_ass_filter_uses_explicit_option_name(self):
         text = (Path(__file__).resolve().parents[1] / 'app.py').read_text(encoding='utf-8')
-        self.assertIn('ass=filename={ass}', text)
+        self.assertIn('=filename={ass}', text)
         self.assertNotIn('ass={ass}', text)
 
 

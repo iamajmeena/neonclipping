@@ -260,7 +260,8 @@ class Plan:
                 'Style: Main,Arial,72,&H00FFFFFF,&H0000FFFF,&H00100B18,&H99000000,-1,0,0,0,100,100,0,0,1,5,2,5,50,50,0,1',
                 '[Events]', 'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text']
         (Path(self.data) / under_name).write_text(chr(10).join(head + under) + chr(10), encoding='utf-8')
-        return (f'[0:v]split=2[s0][s1];[s0]scale={W}:{H},drawbox=x=0:y=0:w={W}:h={H}:color={bg}:t=fill[bg0];[bg0]ass=filename={under_name}[bgc];'
+        from captions import burn_filter
+        return (f'[0:v]split=2[s0][s1];[s0]scale={W}:{H},drawbox=x=0:y=0:w={W}:h={H}:color={bg}:t=fill[bg0];[bg0]{burn_filter()}=filename={under_name}[bgc];'
                 f'[s1]scale={cw}:{ch}:force_original_aspect_ratio=increase,crop={cw}:{ch},setsar=1[cl0];'
                 + self._round('[cl0]', cw, ch, radius, '[clipv]') +
                 f';[bgc][clipv]overlay={cx}:{cy}:shortest=1[base]')
