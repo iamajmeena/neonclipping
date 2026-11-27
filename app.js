@@ -463,12 +463,13 @@ const camReset=document.getElementById('cam-reset');if(camReset)camReset.onclick
 
 // Cloud AI panel (optional OpenAI-compatible provider)
 (async()=>{const q=id=>document.getElementById(id);if(!q('llm-panel'))return;let presets={};
- const note=t=>{q('llm-note').textContent=t;};
- const load=async()=>{try{const s=await request('/llm/settings');presets=s.presets||{};const sel=q('llm-preset');if(sel.options.length<=1)Object.entries(presets).forEach(([k,v])=>{const o=document.createElement('option');o.value=k;o.textContent=v.label;sel.append(o);});
-  q('llm-url').value=s.base_url||'';q('llm-model').value=s.model||'';q('llm-on').checked=!!s.enabled;q('llm-key').placeholder=s.has_key?'key saved (leave empty to keep it)':'paste key (kept hidden)';
+ const url=q('llm-url'),model=q('llm-model'),on=q('llm-on'),key=q('llm-key'),preset=q('llm-preset');
+ const note=t=>{const n=q('llm-note');if(n)n.textContent=t;};
+ const load=async()=>{try{const s=await request('/llm/settings');presets=s.presets||{};if(preset&&preset.options.length<=1)Object.entries(presets).forEach(([k,v])=>{const o=document.createElement('option');o.value=k;o.textContent=v.label;preset.append(o);});
+  if(url)url.value=s.base_url||'';if(model)model.value=s.model||'';if(on)on.checked=!!s.enabled;if(key)key.placeholder=s.has_key?'key saved (leave empty to keep it)':'paste key (kept hidden)';
   if(s.enabled)q('llm-panel').open=true;note(s.ready?'Ready: '+s.model:(s.enabled?'Not complete: address, model and key are needed.':'Off'));}catch(e){}};
- q('llm-preset').onchange=()=>{const p=presets[q('llm-preset').value];if(p){q('llm-url').value=p.base_url;q('llm-model').value=p.model;}};
- q('llm-save').onclick=async()=>{try{await request('/llm/settings',{enabled:q('llm-on').checked,base_url:q('llm-url').value,model:q('llm-model').value,api_key:q('llm-key').value});q('llm-key').value='';await load();}catch(e){note(e.message);}};
- q('llm-test').onclick=async()=>{note('Testing...');try{await request('/llm/settings',{enabled:q('llm-on').checked,base_url:q('llm-url').value,model:q('llm-model').value,api_key:q('llm-key').value});q('llm-key').value='';const r=await request('/llm/test',{});await load();note(r.ok?('Works: '+r.model+' answered in '+r.ms+' ms'):('Failed: '+r.error));}catch(e){note(e.message);}};
- q('llm-forget').onclick=async()=>{try{await request('/llm/forget-key',{});await load();note('Key removed from this computer.');}catch(e){note(e.message);}};
+ if(preset)preset.onchange=()=>{const p=presets[preset.value];if(p){if(url)url.value=p.base_url;if(model)model.value=p.model;}};
+ const save=q('llm-save');if(save)save.onclick=async()=>{try{await request('/llm/settings',{enabled:!!(on&&on.checked),base_url:url?url.value:'',model:model?model.value:'',api_key:key?key.value:''});if(key)key.value='';await load();}catch(e){note(e.message);}};
+ const test=q('llm-test');if(test)test.onclick=async()=>{note('Testing...');try{await request('/llm/settings',{enabled:!!(on&&on.checked),base_url:url?url.value:'',model:model?model.value:'',api_key:key?key.value:''});if(key)key.value='';const r=await request('/llm/test',{});await load();note(r.ok?('Works: '+r.model+' answered in '+r.ms+' ms'):('Failed: '+r.error));}catch(e){note(e.message);}};
+ const forget=q('llm-forget');if(forget)forget.onclick=async()=>{try{await request('/llm/forget-key',{});await load();note('Key removed from this computer.');}catch(e){note(e.message);}};
  load();})();
