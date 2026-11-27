@@ -212,7 +212,7 @@ def start_export(b,job=None):
    if visible_words:
     (DATA/(job+'.vtt')).write_text(subtitles.write_track(subtitles.parse_track((DATA/srt).read_text(encoding='utf-8'),allow_overlap=True),'vtt',allow_overlap=True),encoding='utf-8')
    if plan:styling.append_ass(DATA/ass,plan,dur)
-   fc=g2+f';[base]ass=filename={ass}[v]'
+   fc=g2+f';[base]{captions.burn_filter()}=filename={ass}[v]'
    audio_source='[0:a]'
    has_audio=(plan.has_audio if plan else styling.source_info(src)[1]) if spans or effect_cues else False
    if spans and has_audio:
@@ -238,7 +238,7 @@ def start_export(b,job=None):
    if audio_filters and amap:
     fc+=f';{amap}{audio_filters}[audio_finish]';amap='[audio_finish]';audio_filters=''
    state[job].update(message='Rendering vertical clip with '+style+' captions' if visible_words else 'Rendering vertical clip')
-   base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),'-filter_complex',fc,'-map',vmap,'-map',amap or '0:a?',*(['-af',audio_filters] if audio_filters else []),'-t',str(dur),'-c:a','aac','-b:a','160k','-movflags','+faststart']
+   base=['ffmpeg','-y','-v','error','-ss',str(start),'-t',str(end-start),'-i',str(src),*(plan.inputs if plan else []),'-filter_complex',fc,'-map',vmap,'-map',amap or '0:a?',*(['-af',audio_filters] if audio_filters else []),'-t',str(dur),'-c:a','aac','-strict','-2','-b:a','160k','-movflags','+faststart']
    if fps:base+=['-r',str(fps),'-fps_mode','cfr']
    for encoder in encoders.h264(cq=20,x264_preset='fast',nv_preset='p5'):
     # NVIDIA: also decode the source on the GPU (4K VP9/AV1 on the CPU is what pinned it at 100%); retry on the CPU if that fails.
